@@ -1,0 +1,778 @@
+PRODAPT — DETAILED LOVABLE BUILD PROMPT
+Attach these 3 files to this message:
+  1. Prodapt_Master_Project_Document_with_AI_Copilot.md
+  2. Prodapt_Complete_Analysis_and_Build_Spec.md   (the audit)
+  3. visily-multiscreens.pdf                       (style reference only)
+
+===========================================================
+AUTHORITY ORDER (use when the three sources disagree)
+===========================================================
+Audit document  >  Master Project Document  >  Visily PDF
+The Visily PDF is VISUAL STYLE ONLY (colors, fonts, card shapes, sidebar
+layout). Never copy its page content — several of its screens show the
+wrong product (electronics/"Lumina Pro"/Germany) mixed with the right one
+(Ragi Crunch/India). Take the look, discard the content, everywhere.
+
+===========================================================
+PROJECT SCOPE — LOCKED, DO NOT DEVIATE
+===========================================================
+One MVP: a packaged food/beverage product ("Ragi Crunch Biscuit" as the
+demo product) expanding within Indian states only (Karnataka, Kerala,
+Telangana, Andhra Pradesh, Maharashtra as candidates). NEVER include
+Germany, DACH, UK, Japan, Brazil, UAE, Nordics, EU regulations, GDPR, WEEE,
+RF Certification/ANATEL, USD/Forex conversion, or any electronics/
+smart-home product content anywhere — not in seed data, not in placeholder
+text, not in any example.
+
+===========================================================
+TECH STACK — EXACT MAPPING, NOTHING ELSE
+===========================================================
+React + TypeScript + Tailwind CSS + shadcn/ui frontend.
+Supabase backend only: Postgres with the pgvector and PostGIS extensions
+enabled, Supabase Auth, Supabase Storage, Edge Functions (Deno/TypeScript),
+Supabase Realtime for live job progress. Do not attempt FastAPI, LangGraph,
+Celery, Redis, or Chroma — map every one of those to its Supabase
+equivalent: FastAPI -> Edge Functions (one function per endpoint/agent).
+Pydantic -> Zod schemas, shared in supabase/functions/_shared/schemas.ts.
+LangGraph -> a small orchestrator Edge Function (`run-pipeline`) driven by
+an explicit DAG table, state kept in `agent_runs`. Celery+Redis -> each
+Edge Function invocation runs exactly ONE agent (never a whole pipeline in
+one call, to avoid timeouts); a `job_queue` table + pg_cron or self-invoking
+functions move the pipeline forward. Redis cache -> a `cache_entries` table
+(key, value_json, expires_at). Chroma -> pgvector in the same Postgres.
+Cloudflare R2 -> Supabase Storage with private buckets and signed URLs.
+Auth0/Clerk -> Supabase Auth. WebSocket/SSE -> Supabase Realtime subscribed
+to pipeline_jobs, pipeline_events, agent_runs. Mapbox GL JS runs in the
+browser with a public token restricted by URL. Store API keys (Anthropic,
+Voyage, Tavily, Google Places, OpenWeatherMap, Gemini image) as Supabase
+Edge Function secrets — never expose them to the browser.
+
+===========================================================
+DATABASE SCHEMA — BUILD EXACTLY THIS
+===========================================================
+ENUMS:
+product_type(hard,soft,idea,other) · other_subtype(media,event,real_estate,
+other) · confidence_level(high,medium,low) · job_status(draft,queued,
+running,partial,completed,failed,cancelled) · node_status(queued,running,
+succeeded,failed,skipped,cancelled) · location_status(not_started,
+analysing,ready,flagged) · compliance_status(pass,flag) · flag_status(open,
+acknowledged,resolved,dismissed) · severity(low,medium,high) ·
+risk_category(regulatory,cultural,market,economic_political) ·
+geo_category(competitor,distribution,footfall) · footfall_tier(mass_market,
+premium,null) · modification_category(packaging,product,size,commercial,
+content) · modification_status(proposed,accepted,rejected) ·
+variant_status(generating,generated,brief_only,failed) · source_kind
+(kb_curated,live_web,places,weather,trends,user,model_inference)
+
+CORE TABLES (create all, with these columns):
+- profiles(id uuid pk -> auth.users, full_name, job_title, department,
+  avatar_url, created_at)
+- workspaces(id, name, home_region, home_country default 'IN', created_by,
+  deleted_at, created_at)
+- workspace_members(workspace_id, user_id, role check in
+  owner/admin/member/viewer, pk(workspace_id,user_id))
+- share_tokens(id, job_id, token_hash, expires_at, revoked_at, created_by)
+- products(id, workspace_id, created_by, product_type, other_subtype, name
+  not null, category not null, category_path text[], description,
+  price_amount numeric(12,2), price_currency default 'INR', pack_size_value
+  numeric, pack_size_unit, current_markets text[], sales_channels_today
+  text[], type_details jsonb, image_urls jsonb {front,back,top,bottom,left,
+  right,label_closeup,packaging_open[,lifestyle]}, status default 'draft',
+  created_at, updated_at, deleted_at)
+- brand_assets(id, product_id, workspace_id, kind check in
+  logo/screenshot/reference, label, storage_path, width, height, created_at)
+- product_profiles(id, product_id, profile_json jsonb, assumptions jsonb,
+  confidence confidence_level, rationale, version, created_at)
+- target_markets(id, product_id, market_name, region_type check in
+  state/country/city/custom, country, selection_type check in
+  point/region/recommended/polygon, geom geography, geojson jsonb)
+- pipeline_jobs(id, workspace_id, product_id, status job_status,
+  current_stage, progress numeric(5,2), mode default 'autonomous',
+  started_at, completed_at, failed_reason, created_by)
+- job_locations(id, job_id, location_name, region_type, country, geom
+  geography, location_status, rank, selected_by check in
+  user/recommender)
+- location_recommendations(id, job_id, location_id, rank, fit_score
+  numeric(4,3), score_breakdown jsonb, why_it_fits, evidence jsonb,
+  top_modifications jsonb, confidence, rationale, assumptions jsonb)
+- agent_runs(id, job_id, location_id nullable, variant_id nullable,
+  agent_name, node_key, status node_status, attempt default 1, input_hash,
+  prompt_version, model, plan jsonb, scratchpad jsonb, tool_calls jsonb,
+  retrieval_queries jsonb, loop_iterations, output_json jsonb, schema_valid
+  boolean, confidence, rationale, assumptions jsonb, data_sources_used
+  jsonb, latency_ms, tokens_in, tokens_out, estimated_cost_usd
+  numeric(10,4), error, started_at, finished_at)
+- pipeline_events(id, job_id, location_id, agent_run_id, type, message,
+  payload jsonb, created_at)
+- job_queue(id, job_id, node_key, location_id, variant_id, run_after
+  timestamptz, locked_at, attempts, status)
+- cache_entries(key pk, value jsonb, expires_at, created_at)
+- cultural_findings(id, job_id, location_id, demographics_summary,
+  cultural_notes jsonb, festivals jsonb, preferences_and_taboos jsonb,
+  climate jsonb, regulations_summary jsonb, trends jsonb, confidence,
+  rationale, data_sources_used jsonb, assumptions jsonb)
+- geo_recommendations(id, job_id, location_id, name, category geo_category,
+  footfall_tier, point geography(Point,4326), lat double precision, lng
+  double precision, score numeric(4,3), rationale, source, place_ref,
+  created_at)
+- distribution_plan_items(id, job_id, location_id, geo_recommendation_id,
+  added_by, note, created_at)
+- analogs(id, job_id, location_id, success_case_id, why_similar, similarity
+  numeric(4,3), source_url, source_date)
+- analog_analysis(id, job_id, location_id, market_fit_score numeric(4,3),
+  gap_analysis jsonb, evidence_count, confidence, rationale, widened_to,
+  assumptions jsonb)
+- modification_recommendations(id, job_id, location_id, variant_id null,
+  category modification_category, change, reason, supported_by jsonb,
+  evidence jsonb, expected_effect, confidence, is_assumption boolean,
+  status modification_status default 'proposed', source_agent, created_at)
+- variants(id, job_id, location_id, variant_number, variant_key check in
+  standard/warm_festival/value_trial/premium/gift_pack, design_brief jsonb,
+  brief_version, rendered_asset_path, status variant_status,
+  generation_notes, prompt_ref, compliance_status, market_fit_score
+  numeric(4,3), risk_level check in low/medium/high, is_concept_visualization
+  default false, created_at, updated_at)
+- variant_versions(id, variant_id, version, design_brief jsonb,
+  rendered_asset_path, changed_by, change_note, created_at)
+- compliance_flags(id, job_id, location_id, variant_id, path check in
+  text/visual, item, concern not null, source_title not null, source_url,
+  severity, status flag_status default 'open', resolution_note, region
+  jsonb, created_at, CHECK source_title is not null and length(concern)>0)
+- compliance_summaries(id, job_id, location_id, variant_id,
+  compliance_status, regulatory_notes jsonb, confidence, rationale)
+- risks(id, job_id, location_id, variant_id null, category risk_category,
+  title, detail, severity, mitigation, linked_flag_id null, confidence,
+  sources jsonb)
+- risk_summaries(id, job_id, location_id, risk_level, rationale, confidence)
+- channel_taxonomy(key pk, label, applies_to_categories text[],
+  price_logic, sort_order)
+- channel_pricing(id, job_id, location_id, variant_id null, channel
+  references channel_taxonomy, unit_basis, price_min numeric, price_max
+  numeric, currency default 'INR', rationale, evidence_sources jsonb,
+  retrieval_date date, confidence, note, entry_approach,
+  promotional_tie_in, priority_rank, applicable default true, researched
+  default true, CHECK (confidence in (medium,high)) implies
+  jsonb_array_length(evidence_sources) > 0)
+- business_strategy(id, job_id, location_id, executive_summary,
+  launch_window_start date, launch_window_end date, launch_festival jsonb,
+  marketing_channels jsonb, distribution_summary jsonb, priority_order
+  jsonb, confidence, rationale, assumptions jsonb)
+- playbooks(id, job_id, final_document_url, map_config jsonb, summary,
+  created_at)
+- kb_documents(id, kb check in A/B, title, publisher, source_url, doc_type
+  check in regulatory/cultural/festival/demographic/climate/success_case,
+  country, region, category, published_at date, ingested_at, content_hash,
+  status)
+- kb_chunks(id, document_id, kb, chunk_index, content, word_count,
+  embedding vector(1024), country, region, category, doc_type,
+  source_citation, published_at date) -- HNSW index on embedding; btree on
+  (country, region, category, doc_type)
+- success_cases(id, product, brand, category, market, country, price_band,
+  price_amount numeric, pack_size, key_attributes jsonb, success_signals
+  jsonb, source_url, date, embedding_text, embedding vector(1024),
+  content_hash unique)
+- sources(id, job_id, title, publisher, url, kind source_kind, published_at
+  date, retrieved_at timestamptz, kb_document_id null, used_by jsonb)
+- candidate_regions(id, home_region, country, candidate_name, region_type,
+  sort_order)
+- scoring_config(id, version, weights jsonb default {"category_demand":
+  0.30,"cultural_fit":0.25,"price_fit":0.15,"competition_gap":0.15,
+  "regulatory_ease":0.10,"seasonal_fit":0.05}, active boolean)
+- copilot_conversations(id, workspace_id, job_id, user_id, title, context
+  jsonb, created_at, updated_at)
+- copilot_messages(id, conversation_id, role check in user/assistant/tool,
+  content, evidence jsonb, provenance jsonb, confidence, actions jsonb,
+  action_status, feedback smallint, tokens_in, tokens_out, created_at)
+- notifications(id, user_id, workspace_id, type, title, body, link,
+  read_at, created_at)
+- notification_prefs(user_id, job_completed bool, job_failed bool,
+  high_flag bool, email bool)
+- tasks(id, job_id, location_id, title, due_date date, source, source_ref
+  uuid, status default 'open')
+
+RLS: a row is visible if workspace_id is in the user's workspace_members.
+Writes need role member+, deletes need admin+, viewer is read-only. Admin
+routes need admin/owner. Storage policies mirror this with folder prefix =
+workspace_id. Edge Functions using the service role must re-check
+membership from the JWT.
+
+===========================================================
+FULL PAGE LIST — BUILD ALL OF THESE (not just the 11 Visily screens)
+===========================================================
+P-01 /auth, /auth/reset, /auth/verify, /onboarding — Supabase Auth
+  (email+password + Google). Sign in: email, password, show/hide, forgot
+  password, Google button. Create account: full name, work email, password
+  (min 10 chars + strength meter), company name (creates workspace), role
+  dropdown, terms checkbox. Onboarding 3 skippable steps: "What do you
+  sell?" (sets default product type), "Where are you today?" (writes
+  workspaces.home_region, seeds Recommender defaults), "Load sample
+  project" (creates demo Ragi Crunch job from seed fixtures). All routes
+  except /auth* require a session; redirect back after login.
+
+P-02 /new/assets (Hard product images) — none of the 8 angle slots are
+  required; Front is "Strongly recommended" only. Confidence pill: 8/8 ->
+  High; Front+Label-closeup+>=2 others -> Medium; else Low (live, updates
+  as files are added/removed). Upload direct to Storage bucket
+  product-assets/{workspace}/{product}/{angle}.{ext}, jpg/png/webp <=10MB,
+  progress bar, thumbnail, Replace/Remove. Logo: svg or png (alpha-channel
+  check), <=5MB. Dropping multiple files at once opens an "Assign angles"
+  modal. Autosave draft after each upload. "Skip photos" visible from the
+  start. Continue is always enabled; if Front is missing show a confirm
+  dialog, not a block.
+
+P-03 /new/details, /new/assets (Soft/Idea/Other) — Soft required: name,
+  category, description, pricing model (free/freemium/subscription/
+  one-time/usage-based), core features (chip list, >=1), target platform.
+  Soft optional: price, screenshots, current markets, languages. Idea
+  required: name/concept, category, description, intended features (chip
+  list). Idea optional: intended price point (text), target customer.
+  Other required: subtype dropdown (Media/Event/Real estate/Other), name,
+  category, description. Soft/Other step 3 = up to 10 labeled screenshots
+  (Onboarding, Main screen, Pricing page, Settings, Other), same upload
+  rules as P-02; confidence >=3 screenshots -> Medium, >=5 incl. pricing ->
+  High. Idea skips step 3 entirely; stepper shows only 3 steps; review page
+  notes "Idea-stage: visuals will be labelled Concept visualization."
+
+P-03b /new/profile (Review Product Profile, NEW page, run Agent 1 here) —
+  left = form summary, right = generated profile: normalized category,
+  price band (low/mass/mid/premium + assumption tag if inferred),
+  pack-size class (single-serve/family/bulk), key attributes (chips),
+  target customer (text + assumption tag), visual identity (color
+  swatches, pack language, logo detected), full assumptions list
+  {field,assumption,confidence} each with inline "Edit" (editing sets
+  confidence=high, source=user), overall profile confidence pill. Buttons
+  Back / "Looks good - choose markets". Runs on page entry via Edge
+  Function profile-product, skeleton <=15s, falls back to "Profile
+  unavailable - continue anyway" with a gap tag on failure.
+
+P-04 /new/markets — two tabs: "Choose on map" (optional) and "Let Prodapt
+  recommend" (runs Agent 2). Map = Mapbox GL JS + Draw, light style, India
+  fit-bounds, zoom 3-12. Geocoding search box flies to place. Click selects
+  nearest admin region (state at zoom<7, district/city at zoom>=7),
+  highlights polygon, popup "Add Karnataka". Draw tool for custom polygon
+  area with reverse-geocoded centroid name. Shift-click or "Select
+  multiple" toggle for multi-select. Removable chips row, max 10. If
+  reverse-geocode is ambiguous show a disambiguation list. Writes to
+  target_markets. Recommend tab: button calls recommend-locations, shows
+  ranked list (rank, name, fit_score 0.82-style, confidence pill, one-line
+  why, top modification), checkbox per row (top-3 checked by default),
+  "View breakdown" opens the six-bar score chart with weights. User can
+  mix map selections with recommended ones. Primary CTA "Generate
+  Playbook" (disabled until >=1 location chosen). If the candidate list is
+  the default (not map-chosen), show "Candidates: neighbouring states
+  (default)". Submitting POSTs to /generate, creates pipeline_jobs + one
+  job_locations row per location, redirects to /pipelines/:jobId.
+
+P-05 /playbook/:jobId (shell + Overview) — shell applies to every
+  /playbook/:jobId/* page: top bar (product name+type badge, job status
+  pill, location-switcher tabs incl. "All", Export PDF, Share, Ask
+  Copilot), sidebar section links with status dots (Overview, Ranked
+  Locations, Intelligence, Analogs, Modifications, Variants, Compliance,
+  Risks, Channel Pricing, Strategy, Map, Assumptions, Sources), a
+  ContextBar (Product > Location > Variant > Section, feeds Copilot), and
+  a partial-failure banner when applicable ("2 outputs missing - Retry").
+  Overview tab content: KPI row (Locations in plan, Avg fit score computed
+  live, Open compliance flags by severity, Variants generated x of y),
+  executive summary (Agent 10, 5-8 lines, confidence pill), location cards
+  (rank/fit/confidence/open flags/launch window/status), top 3
+  modifications, a section-completion grid, recent events feed.
+
+P-06 /playbook/:jobId/locations — ranked table (rank, location, fit score,
+  confidence, why_it_fits, top_modifications, evidence count, status).
+  Score-breakdown drawer: the six weighted bars with labels and the
+  formula line shown (e.g. "0.30x0.88 + 0.25x0.80 + ... = 0.82"). Evidence
+  list of analog names and KB chunks with source+date. Actions:
+  Include/Exclude location (triggers scoped re-run), Open intelligence,
+  Compare (select 2-3). Label thin-data locations with a Low pill and a
+  sentence.
+
+P-07 /playbook/:jobId/intelligence — tabs: Demographics, Culture & taboos,
+  Festivals & seasons, Climate, Regulations, Competition, Trends.
+  Demographics: summary + bullets (population profile, age mix,
+  urban/rural, income) + source chips. Culture: cultural_notes[] and
+  preferences_and_taboos[] each with a relevance-to-product note.
+  Festivals: list {name,timing,relevance_to_product} plus a 12-month
+  calendar strip highlighting festival windows and the proposed launch
+  window. Climate: KB seasonal summary + a live OpenWeatherMap card
+  cached <=24h. Regulations: retrieved rules per category with source+date,
+  labeled "Flagging only, not legal advice". Competition: density score,
+  top competitor pins linking to the map, observed price band. Trends:
+  search-interest sparkline, sentiment note, retrieval date. Every tab
+  shows a confidence pill, data_sources_used, and a Live/Curated/Inferred
+  tag per block.
+
+P-08 /playbook/:jobId/analogs — header: market_fit_score (0-1) with a "How
+  computed" popover (similarity, count, signal strength), confidence pill,
+  evidence_count. 3-10 analog cards: name, image if available, why_similar,
+  price, pack size, label languages, rating & review count, source link,
+  date, "older data" tag if >24 months old. Gap-analysis table: attribute
+  (pack_size, label_language, flavor, price, channel, positioning) x yours
+  x analogs x gap flag. Recommended modifications link to supported_by
+  analogs (click scrolls to the analog card). Widening notice when applied
+  ("Too few analogs here; widened to Karnataka -> neighbouring market").
+  Always label: "Market fit score - not a sales prediction."
+
+P-09 /playbook/:jobId/modifications — location tabs + variant chips +
+  preview + recommendation cards. Preview shows the ACTUAL rendered
+  variant with a before/after slider (user's original pack vs the adapted
+  render), with a diff table below (Original vs Recommended, changed cells
+  highlighted). Each ModificationCard: category tag (Packaging/Product/
+  Size/Commercial/Content), change, reason, supported_by (analog chips),
+  evidence chips, expected_effect, confidence pill, assumption tag, and
+  three buttons: Accept, Reject, Regenerate. Filters: category, confidence,
+  status. Bulk action "Accept all high-confidence". Accepted changes feed
+  the next scoped re-run of Visual Adaptation and Channel Pricing. No
+  fabricated statistics anywhere - every number must trace to a source or
+  analog; otherwise phrase qualitatively.
+
+P-10 /playbook/:jobId/risks — summary: overall risk_level per location,
+  counts by category (Regulatory/Cultural/Market/Economic-Political). Risk
+  table: title, category, severity, likelihood note, mitigation,
+  linked_flag_id shown as a "From compliance flag #..." chip, confidence,
+  sources. Filters: category, severity, location, variant. Detail drawer:
+  rationale, evidence, mitigation steps, "Ask Copilot" link. Footer note:
+  "Reasoned estimates from available data, not statistical forecasts."
+
+P-11 /playbook/:jobId/compliance — status per variant is only ever "No
+  flags found" or "Flagged" — NEVER "approved/cleared/certified". Flag
+  list: item, concern, source (title+URL), severity, path (text/visual),
+  variant, status (open/acknowledged/resolved/dismissed). Visual flags show
+  the image with a bounding annotation if available, else a caption. Text
+  flags show a highlighted excerpt. Actions: Acknowledge, Mark resolved
+  (with note), Dismiss (reason required), "Regenerate to fix" (scoped
+  re-run of Creative+Visual+Compliance). A flag cannot be created without a
+  source_title (DB constraint enforces this). One-line expandable
+  disclaimer. Regulatory notes list with citations.
+
+P-12 /playbook/:jobId/map — full-height Mapbox map, left filter/legend
+  panel, right pin-detail card. Pin data from geo_recommendations
+  {lat,lng,name,category,rationale,score}; category competitor (red
+  circle), distribution (blue square), footfall (amber triangle, split
+  mass_market/premium) — shape AND color for color-blind safety. Clustering
+  at low zoom. Legend toggles filter client-side with no refetch, showing
+  counts per category. Score-minimum slider. Pin card: name, category tag,
+  rationale, score bar, source (Places/OSM), "Add to distribution plan"
+  button (writes distribution_plan_items), "Open in Maps". List-view
+  toggle as an accessible alternative. Optional competitor-density heat
+  layer. Follows the playbook's location tabs with fit-bounds. Gap state:
+  "Places lookup failed - Retry / showing cached pins from <date>".
+
+P-13 /playbook/:jobId/compare — select 2-3 locations (from header or via
+  Copilot "Compare Kerala and Karnataka"). Side-by-side columns: fit score
+  + six bars, confidence, top modifications, festival/launch window, price
+  matrix summary, compliance flag count, risk level, analog count, data
+  coverage. A generated "Why X ranks above Y" paragraph with evidence
+  chips. Differences highlighted. Buttons: Set as priority location, Export
+  comparison.
+
+P-14 /playbook/:jobId/variants, /variants/:id — MVP variant axes (3 per
+  location): standard (closest to current brand), warm_festival (festival
+  palette/motifs), value_trial (smaller trial pack/lower price); full build
+  adds premium and gift_pack (5 total). Gallery cards: render thumbnail,
+  name, location, compliance chip, market fit score, risk level, price
+  summary, status chip (generated/brief_only/failed/regenerating). Detail
+  page tabs: Visual (big render, before/after slider, download PNG,
+  generation notes, brief reference, "Concept visualization" watermark for
+  Idea-type products), Adaptation (design_brief_json rendered: color
+  direction, imagery notes, layout, messaging, language), Changes
+  (accepted modifications in this variant), Compliance (flags for this
+  variant), Fit & analogs, Risks, Pricing (channel prices for this
+  variant's pack size), History (versions with timestamp/who/what, restore
+  button). Actions: Edit brief, Regenerate visual, Duplicate, Set as
+  recommended, Download assets.
+
+P-15 /playbook/:jobId/pricing — filters: Location, Variant/pack size,
+  Channel. Matrix rows = channels from channel_taxonomy (only the relevant
+  ones for this category); columns = Recommended price (min-max, per unit
+  basis), Rationale, Evidence sources (links+count), Retrieval date,
+  Confidence pill, Priority rank. Null price shows "-" plus "No comparable
+  found; price not guessed". Not-applicable channels show a grey
+  "Not relevant for biscuits" row. Not-researched channels show "Not
+  researched (step cap)" at Low confidence. Evidence drawer lists every
+  comparable (title, URL, price, date, channel type, store). Strategy
+  cards: entry_approach, promotional_tie_in, priority_rank per channel.
+  "Prices older than 90 days" warning with a "Refresh prices" button that
+  re-runs only Agent 10's pricing step. UI must refuse to display
+  medium/high confidence without >=1 source URL (hard guard, not just a
+  prompt rule).
+
+P-16 /playbook/:jobId/strategy — Launch timing (window dates, linked
+  festival, rationale, calendar strip), Marketing channels (ranked list
+  with messaging direction), Distribution plan (priority outlet types and
+  areas, pulled from pins plus any user-added distribution_plan_items),
+  Priority order (which variant/location/channel first), Executive
+  summary. Every item shows evidence chips + confidence. Launch timing
+  must cite the Cultural Analyst's festival object; distribution must cite
+  geo_recommendations ids — never invent either.
+
+P-17 Edit/Regenerate drawer (scoped re-run) — opened from Variant,
+  Modification, Pricing, or Compliance. Fields: what to change (structured
+  form for brief fields, or free text) and which outputs to regenerate
+  (checkboxes). Before running, show an Impact Preview: "This will re-run:
+  Creative -> Visual -> Compliance -> Risk -> Growth for Karnataka/Variant
+  2. Unchanged: Cultural, Geo, Analogs." plus a cost note. Buttons Cancel/
+  Run. While running, show the stage tracker; on completion add a new
+  version to History. Dependency table below defines exactly what re-runs.
+
+P-18 /playbook/:jobId/assumptions — table of every assumption across every
+  agent: agent, field, assumption, confidence, source (model/user/
+  default), status (assumed/confirmed/corrected). Filterable by
+  agent/confidence. Row action "Confirm" or "Correct" (opens P-17 and
+  triggers the correct scoped re-run). Top summary: confidence-distribution
+  chart (High/Medium/Low counts), coverage by location, a "Low-confidence
+  items" shortlist.
+
+P-19 /playbook/:jobId/sources, /sources — table of sources: title,
+  publisher, URL, type (KB-curated/live-web/places/weather), date
+  published, retrieval date, used-by count (agents/outputs). Detail drawer
+  shows the cited chunks. Filters. Footer link "Data Sources & Provenance"
+  across the whole app points here (not to a dead link). Also show a "Data
+  coverage per location" matrix: document types (demographic, cultural,
+  festival, regulatory, success cases) x location, with counts.
+
+P-20 /settings/* — tabs: Account (photo, name, email+verified status, job
+  title, department), Workspace (name, home region, members list, invite
+  by email, roles Owner/Admin/Member/Viewer), Notifications (toggles: job
+  completed, job failed, new high-severity flag; channels in-app/email),
+  AI & Data (read-only: LLM provider/model in use, embedding model, KB
+  document count, data retention days, a "do not use my data for training"
+  statement only if actually true, prompt versions visible to admin only),
+  Security (change password, active sessions, sign out everywhere, 2FA
+  flagged as post-MVP), Billing (hidden until post-MVP), Danger zone
+  (export all data, delete workspace requiring typed confirmation, 30-day
+  soft delete). Notification bell: panel listing notifications
+  (type/title/link/read-state) with "Mark all read". User menu: profile,
+  workspace switcher, theme toggle if dark mode is built, sign out.
+
+P-21 System states (shared components, reused everywhere) — Loading:
+  Skeleton blocks matching the final layout, shown after a 200ms delay.
+  Empty: EmptyState with icon, title, one-line reason, and a CTA (e.g. "No
+  analogs found for this location. Widen search / Add analog"). Error:
+  ErrorState with message, error code, and a Retry button — never show a
+  stack trace to the user. Partial/gap: GapTag, e.g. "Visual not generated
+  - Retry". Low data: a yellow LowEvidence banner. Stale: "Updated 90+ days
+  ago" tag. Offline: toast. Permission: "You don't have access" for RLS
+  denials. Every data-bearing block on every page must implement all
+  applicable states from this list — do not ship a page with only a happy
+  path.
+
+P-22 /playbook/:jobId/print + Share modal — print route: single column,
+  branded cover (product, date, locations, confidence summary), all 13
+  playbook sections in order, page breaks before each section, header/
+  footer with page numbers, the disclaimer shown once, a sources list at
+  the end. "Download PDF" via browser print or an html2pdf-based approach;
+  store the generated file in Storage and record its path in
+  playbooks.final_document_url. Share: read-only signed-token link
+  (share_tokens, expiry options 7/30/never, revocable); viewers see the
+  playbook but not Copilot actions or edit buttons; brand assets stay
+  private via signed URLs even on a shared link.
+
+P-23 /admin/runs, /admin/kb (admin role only) — Runs: table of agent_runs
+  (job, agent, status, latency, tokens in/out, estimated cost, prompt
+  version, model, tool-call count, confidence), filterable by status/agent/
+  date, detail drawer showing the plan, scratchpad steps (action/reasoning/
+  result summary), retrieval queries, final JSON, and schema-validation
+  result. KPI strip: cost today, average latency, error rate, completion
+  rate. Knowledge Base admin: documents list (country, region, category,
+  doc type, source, date, chunk count, status), upload/ingest for PDF/MD/
+  CSV, an incremental re-ingest button, a retrieval-test console (enter a
+  product+location, see the chunks returned with filters applied), a
+  coverage matrix, and a "Run retrieval checks" button against a fixture
+  list (the doc requires 10+ passing retrieval tests).
+
+P-24 Copilot (slide-over panel on every page + full /copilot page) —
+  persistent entry button on all pages, keyboard shortcut Ctrl/Cmd+/, opens
+  a 420px right slide-over and also a full page. ContextBar auto-fills
+  {product_id, job_id, location, variant_id, section, channel} from the
+  current route and any selected rows; user can change or clear it. 3
+  suggested-prompt chips generated per screen (not static/hard-coded).
+  Messages render markdown, tables for comparisons, evidence cards (title,
+  snippet, link, date, KB-or-live tag), a provenance badge ("From your
+  project" vs "Suggestion"), a confidence pill, Copy, and thumbs up/down.
+  Server-returned typed actions: apply_change, compare, regenerate_variant,
+  open_playbook_section, view_on_map, generate_playbook — each requires a
+  confirmation sheet with an impact preview before executing. Token
+  streaming with Stop and Retry. Conversation history per job (list,
+  rename, delete). Max message length 2000 chars, rate limit 20
+  messages/min. When evidence is insufficient the Copilot must refuse to
+  state a number and say what's missing, rather than guessing. Enter sends,
+  Shift+Enter inserts a newline (standard convention).
+
+P-25 /pipelines/:jobId (live run view) — header: product, locations,
+  started time, elapsed, status. Body: an AgentStageTracker shown as a
+  graph: Profiler -> Recommender -> [Cultural || Geo] -> Analog -> Creative
+  -> Visual -> Compliance -> Risk -> Growth -> Playbook. Per node: state,
+  duration, tokens, confidence once finished, an output-preview link, a
+  Retry button if failed, "Skip & continue" for non-blocking agents. Side
+  panel: live event log from pipeline_events. Buttons: Cancel job, "Open
+  partial playbook" once enough of Growth's inputs exist, "Run in
+  background" (sends a notification when done). Per-location tabs when
+  multiple locations are running. Use Supabase Realtime for live updates
+  with a 3-second polling fallback.
+
+P-26 /products/:id — shows all intake data, images, the generated profile,
+  and this product's job history. "Edit product" reopens the same intake
+  form; saving a change that affects outputs shows "Re-run affected
+  agents?" using the same dependency logic as P-17 (a product-basics edit
+  re-runs everything downstream).
+
+P-27 /dashboard, /pipelines — apply every global fix (below) plus the
+  per-screen S1/S5 fixes. Add saved filters and a "Continue draft" card
+  when a draft intake exists.
+
+P-28 404 / 403 / maintenance / expired-share-link / session-expired pages,
+  each with a link back to the dashboard.
+
+FLOW MAP:
+/auth -> /onboarding -> /dashboard
+/dashboard -> New Expansion -> /new/type -> /new/details -> /new/assets
+  (branches by product type) -> /new/profile -> /new/markets -> Generate
+Generate -> /pipelines/:jobId -> (on completion) -> /playbook/:jobId
+/playbook/:jobId -> locations | intelligence | analogs | modifications |
+  variants | compliance | risks | pricing | strategy | map | assumptions |
+  sources
+Any page -> Copilot panel; any variant -> Edit drawer -> /pipelines/:jobId
+  (scoped run)
+/playbook -> Export PDF (/print) | Share link
+/settings/* ; /admin/runs ; /admin/kb
+
+===========================================================
+GLOBAL UI RULES — APPLY TO EVERY PAGE ABOVE
+===========================================================
+- Never mix geographies or products: everything is Ragi Crunch / India,
+  always.
+- Breadcrumb reflects the actual current route; sidebar highlight follows
+  the active route — never a fixed "Dashboard > Expansion Playbook" on
+  every page.
+- Score format is locked: fit score = numeric 0-1, 2 decimals (e.g. 0.82)
+  shown with a bar filled to that percentage. Confidence is ALWAYS a pill
+  reading High/Medium/Low with a color — never a raw percentage like "96%
+  confidence". A separate "Data coverage" percentage is allowed but must
+  be named differently and computed from real KB counts.
+- The compliance/disclaimer footer text appears once, short: "Compliance
+  output flags likely issues from a curated rules set. It is not legal
+  advice." Full legal text lives in a modal, not repeated on every page.
+  Never claim "certification" anywhere.
+- One consistent floating Copilot button (sparkle icon, label "Copilot"),
+  fixed position, with enough bottom padding to never overlap footer text.
+- Sidebar groups: Workspace (Dashboard, New Expansion, Pipelines); Current
+  Expansion, shown when a job is open (Overview, Ranked Locations,
+  Intelligence, Analogs, Modifications, Variants, Compliance, Risks,
+  Channel Pricing, Strategy, Map, Assumptions, Sources); Account (Copilot,
+  Settings).
+- Body text >=14px, labels >=12px, contrast ratio >=4.5:1 (WCAG AA). Darken
+  any light-teal-on-white text.
+- Status is never color-only — always icon + text (checkmark Low risk,
+  triangle Medium, double-triangle High, etc.).
+- Every data block implements all four P-21 states (loading, empty, error,
+  partial/gap) — no screen may ship with only a happy-path state.
+- Header search is scoped to products/locations/flags with placeholder
+  "Search products, locations…", results as a dropdown.
+- No invented marketing language: no "trained on global trade data" (the
+  system uses RAG, it is not a trained model), no fake version badges like
+  "Model v4.2" unless backed by a real model_version field.
+- Bind the header avatar/name/role to the real profiles table — never
+  hard-code a persona.
+- Currency is INR only for MVP — no FX conversion text anywhere.
+- Responsive breakpoints required: >=1280 desktop, 768-1279 tablet (sidebar
+  collapses to icons), <768 mobile (bottom nav, stacked cards, map as a
+  full-screen modal).
+- One single status vocabulary, exactly as defined in the enums above — do
+  not invent additional status words like "Initial" or "Planning".
+
+DESIGN TOKENS:
+Primary teal #0F9488 (buttons, active nav); primary hover #0B7A70; text on
+primary = white (contrast check). Sidebar background #0F172A with text
+#E2E8F0. Page background #F8FAFC; surface #FFFFFF; border #E2E8F0.
+Confidence pills: High text #15803D on tint #DCFCE7 with a check icon;
+Medium text #B45309 on tint #FEF3C7 with a tilde icon; Low text #B91C1C on
+tint #FEE2E2 with an exclamation icon — always color + icon + text
+together. Severity: Low = slate, Medium = amber, High = red. Map pin
+colors: Competitor #DC2626 (circle), Distribution #2563EB (square),
+Footfall #F59E0B (triangle) — shape AND color together for accessibility.
+Font: Inter for all UI text, tabular numbers for scores; no monospace font
+for status chips. Card radius 12px, input radius 8px. Spacing scale
+4/8/12/16/24/32. Minimum touch target 44px.
+Build these as named, reusable shared components FIRST, then use them
+everywhere rather than rebuilding similar UI per page: ConfidencePill,
+AssumptionTag, EvidenceChip, ScoreBar, FitScoreBreakdown, GapTag, PinCard,
+VariantCard, ModificationCard, AgentStageTracker, ContextBar.
+
+EXPLAINABILITY RULE (apply to every recommendation/score card anywhere in
+the app): show, in this exact order, Rationale -> Evidence (as chips) ->
+Confidence (as a pill). If any of the three is missing, show a visible
+"Missing evidence" tag in development builds rather than silently omitting
+it.
+
+===========================================================
+ORCHESTRATION
+===========================================================
+DAG per job: profile (job-level, once) -> recommend (job-level, skipped if
+the user chose locations manually) -> then per location: [cultural ||
+geo] (parallel) -> analog -> creative (per variant) -> visual (per
+variant) -> compliance (per variant) -> risk -> growth -> playbook.
+Compliance -> Risk is SEQUENTIAL, not parallel (risk links to compliance
+flags, so compliance must finish first). Creative/visual/compliance each
+run once per variant (3 variants in MVP). Growth waits until all variants
+for that location are done.
+
+Blocking vs non-blocking on failure (after retries):
+profile: continue with a minimal profile from raw inputs, Low confidence +
+  gap tag.
+recommend: fail the job only if there are no user-selected locations;
+  otherwise it's simply skipped.
+cultural: blocking for creative — fallback to web search first, then a
+  Low-confidence minimal result if still empty.
+geo: non-blocking — the map shows a gap state instead.
+analog: non-blocking — Low confidence, no analog-driven modifications.
+creative: blocking for that specific variant only.
+visual: non-blocking — sets variants.status = 'brief_only' plus a GapTag.
+compliance: non-blocking — shows "Compliance check not completed", never
+  shown as a pass.
+risk: non-blocking.
+growth: non-blocking — strategy section shows a gap.
+playbook: always assembles with whatever outputs currently exist.
+
+Scoped re-run dependency table — build this exact logic:
+- Edit product basics (name/price/pack/ingredients) -> re-run profile and
+  everything downstream of it.
+- Add/remove a location -> re-run recommend (partial) + that location's
+  full chain; other locations stay untouched.
+- Edit a modification (accept/reject) -> re-run creative (affected
+  variants) -> visual -> compliance -> risk -> growth; cultural/geo/analog
+  stay unchanged.
+- Edit a variant's design brief -> re-run visual (that variant) ->
+  compliance (that variant) -> risk -> growth; everything else unchanged.
+- Regenerate visual only -> re-run visual(variant) -> compliance(variant)
+  -> risk; creative and growth stay but growth gets flagged "stale".
+- Refresh prices -> re-run only growth's pricing step; everything else
+  unchanged.
+- Acknowledge/resolve a flag -> no re-run at all.
+- Correct an assumption in the profile -> patch profile -> re-run
+  everything downstream.
+- Regenerate geo -> re-run geo -> growth's distribution section only.
+A `rerun` call with dry_run=true must return the exact node list so the
+Impact Preview (P-17) can show it before running. Each run increments a
+version and keeps the previous output in variant_versions/agent_runs for
+History.
+
+Retries/timeouts: LLM calls timeout at 60s with 2 retries (2s, 6s
+backoff). Image generation: 90s timeout, 2 retries, then fall back to
+brief-only. Places/search/weather: 15s timeout, 2 retries. On a schema
+validation failure, send exactly one repair prompt, then fail that node.
+Idempotency key = job_id + node_key + location_id + variant_id +
+input_hash.
+
+===========================================================
+THE 10 AGENTS — BUILD AS STUBS ONLY IN THIS PASS
+===========================================================
+Do NOT implement real RAG retrieval, real LLM reasoning loops, or real
+image generation in this build. For each agent below, create one Supabase
+Edge Function that accepts the correct input shape and returns a
+correctly-shaped, realistic placeholder JSON response for the Ragi Crunch
+/ Karnataka-Kerala-Telangana example, writing to that agent's real output
+table(s) so every page above is fully functional with fake-but-plausible
+data today. Put `// TODO: replace with real agent logic` at the top of
+each function.
+
+1. Product Profiler — writes product_profiles. (Real version: max 3 RAP
+   steps, tool = describe_images via vision, only runs if images exist.)
+2. Location Recommender — writes location_recommendations. (Real: max 8
+   steps, tools = kb_search(A), kb_search(B), web_search, trends.)
+3. Cultural Analyst — writes cultural_findings. (Real: max 6 steps, tools =
+   query_curated_dataset, kb_search(A), web_search, weather.)
+4. Geo-Intelligence Agent — writes geo_recommendations. (Real: max 5
+   steps, tools = places_search, osm_overpass, geocode.)
+5. Success-Analog Advisor — writes analogs, analog_analysis,
+   modification_recommendations. (Real: max 6 steps, tools = kb_search(B)
+   filtered by market+category then similarity, web_search.)
+6. Creative Modifier — writes variants.design_brief,
+   modification_recommendations. (Real: 2 steps, reasoning only, no
+   tools.)
+7. Visual Adaptation Agent — writes variants.rendered_asset_path. (Real: 3
+   steps, tools = generate_image with reference images + brief,
+   composite_logo_text.)
+8. Compliance Validator — writes compliance_flags, compliance_summaries.
+   (Real: max 5 steps, tools = kb_search(A, doc_type=regulatory/cultural),
+   analyze_image.)
+9. Risk Simulator — writes risks, risk_summaries. (Real: 3 steps, optional
+   risk-index tool.)
+10. Business Growth Optimizer — writes channel_pricing, business_strategy.
+    (Real: 4 steps + one Act per researched channel, capped at 10 total,
+    tool = web_search for channel comparables only.)
+
+Also stub the orchestrator Edge Function `run-pipeline` so it calls these
+10 stub functions in the correct DAG order/parallel groups above and
+writes to agent_runs/pipeline_events, so the Run Progress page (P-25)
+works end-to-end with fake data right now.
+
+FORMULAS TO IMPLEMENT IN CODE EVEN FOR STUB DATA (so the numbers you fake
+are at least internally consistent):
+fit_score = sum(weight x component), weights from scoring_config; store
+score_breakdown; round to 3dp, display 2dp.
+market_fit_score = 0.5 x mean(similarity of top-k analogs) + 0.3 x
+min(1, analog_count/5) + 0.2 x mean(normalized signal strength).
+Confidence rule: High = >=3 relevant curated sources/analogs with no
+conflicts; Medium = 1-2 sources or web-only; Low = mostly assumptions.
+Channel pricing rule: never set price_min/price_max without >=1 evidence
+source with a URL; confidence can only be high with >=2 consistent,
+recent (<=12 months) comparables.
+Variants must differ in at least two of: color_direction, layout,
+messaging, pack size.
+A compliance flag cannot exist without a source_title (enforce as a DB
+check, not just application logic).
+
+===========================================================
+SEED DATA (so the demo works out of the box)
+===========================================================
+Demo product: Ragi Crunch Biscuit, Hard, category "Packaged food >
+Biscuits", price INR 10, pack size 50g, current market "Tamil Nadu
+(general stores)", ingredients ragi flour/wheat flour/sugar/edible oil
+(marked as assumed unless the user enters otherwise).
+candidate_regions for home Tamil Nadu: Karnataka, Kerala, Telangana,
+Andhra Pradesh, Maharashtra.
+channel_taxonomy rows: general_retail, modern_trade, captive_convenience,
+hospitality_premium, online_d2c, institutional_bulk — biscuits apply to
+general_retail, modern_trade, online_d2c, institutional_bulk;
+hospitality_premium and captive_convenience are not applicable for this
+category (seed them as applicable=false, not as "low confidence").
+scoring_config v1 with the weights given above.
+Seed location_recommendations fit scores matching the doc's own example
+exactly: Karnataka 0.82, Kerala 0.76, Telangana 0.71 — use these specific
+numbers so every page that shows them (Dashboard, Overview, Locations,
+Compare) stays internally consistent.
+Do not invent regulatory text, prices, or analogs anywhere in seed data —
+every seeded row needs a real source_url field; if one isn't available,
+leave the row out rather than fabricate a citation.
+
+===========================================================
+KPI FORMULAS (compute these live, never hard-code a dashboard number)
+===========================================================
+Active Expansions = count(jobs where status in queued/running/partial).
+Avg fit score = mean of fit_score where rank=1, across completed jobs in
+the last 30 days; show "—" if fewer than 2 completed jobs exist.
+Open compliance flags = count(compliance_flags where status='open'),
+grouped by severity.
+Pipeline completion = mean(progress) of active jobs.
+Locations in plan = count(job_locations) for the current job.
+Variants generated = count(variants where status='generated') out of
+count(variants) total.
+Data coverage per location = filled doc types / required doc types
+(demographic, cultural, festival, regulatory, success_case).
+
+===========================================================
+BUILD ORDER
+===========================================================
+1. Auth, workspaces, roles, RLS policies, and the full database schema.
+2. The shared design-system components listed above.
+3. P-01 through P-03b (the full intake flow with product-type branching
+   and the manual-entry/document-upload toggle for Hard products).
+4. P-04 (map + recommend market selection).
+5. The 10 stub agent Edge Functions, the orchestrator, and P-25 (live Run
+   Progress) wired together end-to-end with fake data.
+6. The full Playbook page set, P-05 through P-19.
+7. P-27 Dashboard/Pipelines, P-20 Settings, P-24 Copilot.
+8. P-13 Compare, P-22 Export/Share, P-23 Admin, P-28 utility pages.
+
+Build the complete application now, following every rule and spec above
+rather than copying the Visily PDF's page content.

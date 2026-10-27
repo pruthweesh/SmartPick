@@ -1,0 +1,6 @@
+{
+  "name": "SmartPick",
+  "description": "Trust-first, AI-powered shopping advisor for electronics and accessories in India. Compare verified specifications, retailer deals, and evidence-led recommendations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
