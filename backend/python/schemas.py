@@ -1,11 +1,15 @@
 """
 SmartPick Pydantic Validation Schemas
 """
+from datetime import datetime
+
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field, EmailStr
 
+
 class UserRegister(BaseModel):
     email: EmailStr
+    phone: Optional[str] = None
     password: str = Field(min_length=6)
     full_name: str
 
@@ -66,8 +70,9 @@ class ProductDetailSchema(BaseModel):
 
 class RecommendationRequest(BaseModel):
     query: Optional[str] = None
+    requirements: Optional[Dict[str, Any]] = None
     budget_min: Optional[float] = 0.0
-    budget_max: Optional[float] = 5000.0
+    budget_max: Optional[float] = None
     category: Optional[str] = None
     intended_use: Optional[List[str]] = []
     must_have_features: Optional[List[str]] = []
@@ -91,3 +96,77 @@ class IssueCreate(BaseModel):
 class PriceAlertCreate(BaseModel):
     product_id: str
     target_price: float
+
+# Cart Schemas
+class CartItemCreate(BaseModel):
+    product_id: str
+    quantity: int = 1
+
+class CartItemResponse(BaseModel):
+    id: str
+    product_id: str
+    quantity: int
+    added_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class CartResponse(BaseModel):
+    id: str
+    user_id: str
+    items: List[CartItemResponse] = []
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Order Schemas
+class OrderItemCreate(BaseModel):
+    product_id: str
+    product_name: str
+    product_image: Optional[str] = None
+    unit_price: float
+    quantity: int = 1
+
+class OrderCreate(BaseModel):
+    items: List[OrderItemCreate]
+    # Shipping address fields (demo)
+    ship_name: str
+    ship_phone: str
+    ship_address: str
+    ship_city: str
+    ship_state: str
+    ship_postal_code: str
+    ship_country: str
+    ship_instructions: Optional[str] = None
+
+class OrderItemResponse(BaseModel):
+    id: str
+    product_id: str
+    product_name: str
+    product_image: Optional[str]
+    unit_price: float
+    quantity: int
+    subtotal: float
+
+    class Config:
+        from_attributes = True
+
+
+class UserPreferenceBase(BaseModel):
+    category: str = "earbuds"
+    budget_min: float = 0.0
+    budget_max: float = 5000.0
+    intended_use: str = "calls"
+    must_have_features: List[str] = []
+    deal_breakers: List[str] = []
+    preferred_brands: List[str] = []
+
+class UserPreferenceResponse(UserPreferenceBase):
+    id: str
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -109,7 +109,7 @@ def seed_products(session: Session):
             prod_obj.id = f"prd_{uuid.uuid4().hex[:10]}"
             prod_obj.model_number = prod.get("model_number")
             prod_obj.description = prod["description"]
-            prod_obj.image_url = None
+            prod_obj.image_url = f"https://picsum.photos/seed/{prod_obj.id}/600/400"
             prod_obj.created_at = datetime.utcnow()
             prod_obj.updated_at = datetime.utcnow()
             prod_obj.data_source = "sample"

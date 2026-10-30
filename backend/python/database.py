@@ -5,7 +5,8 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-SQLITE_URL = os.getenv("DATABASE_URL", "sqlite:///./smartpick.db")
+DEFAULT_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "smartpick.db"))
+SQLITE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH}")
 
 engine = create_engine(
     SQLITE_URL,

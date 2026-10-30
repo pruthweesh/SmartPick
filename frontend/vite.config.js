@@ -18,6 +18,15 @@ export default defineConfig({
       '/api': {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
+        // Ensure the Authorization header is forwarded to the backend.
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const authHeader = req.headers['authorization'];
+            if (authHeader) {
+              proxyReq.setHeader('Authorization', authHeader);
+            }
+          });
+        }
       },
     },
   },

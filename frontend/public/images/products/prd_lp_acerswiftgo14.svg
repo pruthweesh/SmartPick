@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  <defs>
+    <linearGradient id="bg_prd_lp_acerswiftgo14" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1117"/>
+      <stop offset="50%" stop-color="#141720"/>
+      <stop offset="100%" stop-color="#1a1e2b"/>
+    </linearGradient>
+    <linearGradient id="glow_prd_lp_acerswiftgo14" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#83b81a" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#83b81a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" rx="16" fill="url(#bg_prd_lp_acerswiftgo14)"/>
+  <circle cx="200" cy="140" r="100" fill="url(#glow_prd_lp_acerswiftgo14)"/>
+  
+  <!-- Device Art -->
+  <g>
+        <rect x="100" y="65" width="200" height="125" rx="8" fill="#15171e" stroke="#83b81a" stroke-width="3"/>
+        <rect x="110" y="75" width="180" height="105" rx="4" fill="#1f232e"/>
+        <circle cx="200" cy="70" r="2" fill="#888"/>
+        <polygon points="70,205 330,205 310,190 90,190" fill="#262936" stroke="#83b81a" stroke-width="2"/>
+        <rect x="175" y="196" width="50" height="5" rx="2" fill="#444"/>
+        <text x="200" y="132" font-family="sans-serif" font-size="12" font-weight="700" fill="#83b81a" text-anchor="middle">Acer</text>
+        </g>
+  
+  <!-- Spec / Brand Pill Header -->
+  <g transform="translate(20, 20)">
+    <rect width="90" height="22" rx="11" fill="#202430" stroke="#33384a" stroke-width="1"/>
+    <text x="45" y="15" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" font-weight="700" fill="#83b81a" text-anchor="middle" letter-spacing="0.8">ACER</text>
+  </g>
+  <g transform="translate(290, 20)">
+    <rect width="90" height="22" rx="11" fill="#1b2e24" stroke="#25543c" stroke-width="1"/>
+    <text x="45" y="15" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="700" fill="#4ade80" text-anchor="middle" letter-spacing="0.5">VERIFIED AUDIT</text>
+  </g>
+  
+  <!-- Footer Title Bar -->
+  <rect x="0" y="250" width="400" height="50" fill="#0b0c10" opacity="0.85"/>
+  <text x="200" y="280" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="13" font-weight="600" fill="#f8fafc" text-anchor="middle">Acer Swift Go 14 OLED</text>
+</svg>

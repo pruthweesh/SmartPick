@@ -1,7 +1,10 @@
 """
 SmartPick SQLAlchemy Models - All 14 Database Tables (Section 4)
 """
+import uuid
 from datetime import datetime
+
+
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, Text, ForeignKey, DateTime, Index
 )
@@ -10,8 +13,9 @@ from database import Base
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     email = Column(String, unique=True, index=True, nullable=False)
+    phone = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     role = Column(String, default="user") # user, admin
@@ -25,7 +29,7 @@ class User(Base):
 
 class Product(Base):
     __tablename__ = "products"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     name = Column(String, nullable=False, index=True)
     brand = Column(String, nullable=False, index=True)
     # Keep legacy string category for backward compatibility
@@ -51,7 +55,7 @@ class Product(Base):
 
 class Category(Base):
     __tablename__ = "categories"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     name = Column(String, nullable=False, unique=True, index=True)
     parent_id = Column(String, ForeignKey("categories.id"), nullable=True, index=True)
     # Relationships
@@ -60,7 +64,7 @@ class Category(Base):
 
 class ProductSpecification(Base):
     __tablename__ = "product_specifications"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     spec_key = Column(String, index=True, nullable=False)
     spec_value = Column(String, nullable=False)
@@ -74,7 +78,7 @@ class ProductSpecification(Base):
 
 class ProductProCon(Base):
     __tablename__ = "product_pros_cons"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     type = Column(String, nullable=False) # pro, con
     text = Column(Text, nullable=False)
@@ -86,7 +90,7 @@ class ProductProCon(Base):
 
 class RetailerOffer(Base):
     __tablename__ = "retailer_offers"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     retailer_name = Column(String, nullable=False, index=True)
     retailer_url = Column(String, nullable=False)
@@ -102,9 +106,64 @@ class RetailerOffer(Base):
     product = relationship("Product", back_populates="offers")
     price_history = relationship("PriceHistory", back_populates="offer", cascade="all, delete-orphan")
 
+class Cart(Base):
+    __tablename__ = "carts"
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
+    cart_id = Column(String, ForeignKey("carts.id"), nullable=False, index=True)
+    product_id = Column(String, ForeignKey("products.id"), nullable=False, index=True)
+    quantity = Column(Integer, default=1, nullable=False)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+    cart = relationship("Cart", back_populates="items")
+    product = relationship("Product")
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String, default="pending", index=True)  # pending, paid, cancelled, completed
+    payment_status = Column(String, default="unpaid")
+    total_amount = Column(Float, nullable=False)
+    currency = Column(String, default="INR")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Shipping address snapshot fields
+    ship_name = Column(String, nullable=False)
+    ship_phone = Column(String, nullable=False)
+    ship_address = Column(String, nullable=False)
+    ship_city = Column(String, nullable=False)
+    ship_state = Column(String, nullable=False)
+    ship_postal_code = Column(String, nullable=False)
+    ship_country = Column(String, nullable=False)
+    ship_instructions = Column(String, nullable=True)
+
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    user = relationship("User")
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
+    order_id = Column(String, ForeignKey("orders.id"), nullable=False, index=True)
+    product_id = Column(String, nullable=False)  # snapshot of product
+    product_name = Column(String, nullable=False)
+    product_image = Column(String, nullable=True)
+    unit_price = Column(Float, nullable=False)
+    quantity = Column(Integer, default=1, nullable=False)
+    subtotal = Column(Float, nullable=False)
+
+    order = relationship("Order", back_populates="items")
+
 class PriceHistory(Base):
     __tablename__ = "price_history"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     offer_id = Column(String, ForeignKey("retailer_offers.id"), index=True, nullable=False)
     price = Column(Float, nullable=False)
     recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -115,7 +174,7 @@ class PriceHistory(Base):
 
 class ReviewsInsight(Base):
     __tablename__ = "reviews_insights"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     positive_theme = Column(Text, nullable=False)
     negative_theme = Column(Text, nullable=False)
@@ -128,7 +187,7 @@ class ReviewsInsight(Base):
 
 class UserPreference(Base):
     __tablename__ = "user_preferences"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
     category = Column(String, default="earbuds")
     budget_min = Column(Float, default=0.0)
@@ -144,7 +203,7 @@ class UserPreference(Base):
 
 class Wishlist(Base):
     __tablename__ = "wishlists"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
     name = Column(String, default="My Saved Products")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -154,7 +213,7 @@ class Wishlist(Base):
 
 class WishlistItem(Base):
     __tablename__ = "wishlist_items"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     wishlist_id = Column(String, ForeignKey("wishlists.id"), index=True, nullable=False)
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -163,7 +222,7 @@ class WishlistItem(Base):
 
 class PriceAlert(Base):
     __tablename__ = "price_alerts"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=False)
     target_price = Column(Float, nullable=False)
@@ -174,7 +233,7 @@ class PriceAlert(Base):
 
 class RecommendationSession(Base):
     __tablename__ = "recommendation_sessions"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
     session_id = Column(String, unique=True, index=True, nullable=False)
     user_query = Column(Text, nullable=False)
@@ -185,7 +244,7 @@ class RecommendationSession(Base):
 
 class IssueReport(Base):
     __tablename__ = "issue_reports"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     product_id = Column(String, ForeignKey("products.id"), index=True, nullable=True)
     offer_id = Column(String, ForeignKey("retailer_offers.id"), index=True, nullable=True)
     user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
@@ -196,7 +255,7 @@ class IssueReport(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    id = Column(String, primary_key=True, index=True)
+    id = Column(String, primary_key=True, index=True, default=lambda: f"up_{uuid.uuid4().hex[:10]}")
     actor = Column(String, nullable=False)
     action = Column(String, nullable=False)
     entity_type = Column(String, nullable=False)

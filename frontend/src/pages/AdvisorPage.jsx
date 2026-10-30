@@ -38,6 +38,7 @@ export const AdvisorPage = () => {
   const [nearMatches, setNearMatches] = useState([]);
   const [conflictExplanation, setConflictExplanation] = useState(null);
   const [aiExplanation, setAiExplanation] = useState(null);
+  const [isAiPowered, setIsAiPowered] = useState(false);
   const [totalEligible, setTotalEligible] = useState(0);
   const [isEditingConstraints, setIsEditingConstraints] = useState(false);
   const [advisorError, setAdvisorError] = useState(null);
@@ -47,7 +48,7 @@ export const AdvisorPage = () => {
     'Applying strict hard filters (budget, verified ANC, battery threshold)...',
     'Cross-referencing official BIS & lab test specification sheets...',
     'Executing deterministic 6-factor ranking formula...',
-    'Synthesizing transparent acoustic fit rationale and compromises...'
+    'Synthesizing transparent hardware fit rationale and compromises...'
   ];
 
   useEffect(() => {
@@ -55,6 +56,10 @@ export const AdvisorPage = () => {
     if (q) {
       setQueryInput(q);
       executeRecommendation(q);
+    } else {
+      const defaultQuery = 'Flagship phone for camera under ₹75,000';
+      setQueryInput(defaultQuery);
+      executeRecommendation(defaultQuery);
     }
   }, [searchParams]);
 
@@ -105,6 +110,7 @@ export const AdvisorPage = () => {
       setNearMatches(data.near_matches || []);
       setConflictExplanation(data.conflict_explanation);
       setAiExplanation(data.ai_explanation);
+      setIsAiPowered(!!data.ai_powered);
       setTotalEligible(data.total_eligible || 0);
       setSelectedAnswers({});
     } catch (err) {
@@ -153,6 +159,7 @@ export const AdvisorPage = () => {
         setNearMatches(data.near_matches || []);
         setConflictExplanation(data.conflict_explanation);
         setAiExplanation(data.ai_explanation);
+        setIsAiPowered(!!data.ai_powered);
         setTotalEligible(data.total_eligible || 0);
         showToast('Advisor updated with your refined criteria!');
       }
@@ -163,10 +170,19 @@ export const AdvisorPage = () => {
     }
   };
 
+  const debounceTimerRef = React.useRef(null);
+
   const handleConstraintUpdate = (updated) => {
     const merged = { ...requirements, ...updated };
     setRequirements(merged);
-    executeRecommendation('', merged);
+    
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    debounceTimerRef.current = setTimeout(() => {
+      executeRecommendation('', merged);
+    }, 280);
   };
 
   return (
@@ -242,7 +258,7 @@ export const AdvisorPage = () => {
         <div className="bg-white dark:bg-[#111216] rounded-3xl p-8 border border-black/[0.08] dark:border-white/[0.08] text-center space-y-4 animate-in fade-in duration-200">
           <div className="w-8 h-8 rounded-full border-2 border-neutral-300 border-t-neutral-900 dark:border-neutral-700 dark:border-t-white animate-spin mx-auto" />
           <h3 className="font-bold text-neutral-900 dark:text-white text-base">
-            Evaluating 41 Audited Products Across 6 Categories Against Your Criteria
+            Evaluating 106 Audited Products Across 6 Categories Against Your Criteria
           </h3>
           <p className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
             {loadingSteps[loadingStep]}
@@ -340,7 +356,7 @@ export const AdvisorPage = () => {
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-[10.5px] font-mono uppercase tracking-[0.18em] text-neutral-500 font-semibold">
-                  Acoustic Constraints Active
+                  Hardware Constraints Active
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">
                   Deterministic Filters
@@ -371,7 +387,7 @@ export const AdvisorPage = () => {
                 ))}
 
                 <span className="text-neutral-400 text-xs pl-1 font-mono">
-                  ({Math.max(0, 41 - totalEligible)} models eliminated by constraints)
+                  ({Math.max(0, 106 - totalEligible)} models eliminated by constraints)
                 </span>
               </div>
             </div>
@@ -466,11 +482,23 @@ export const AdvisorPage = () => {
       {/* AI Advisor Synthesis Narrative */}
       {!loading && !advisorError && aiExplanation && (
         <div className="bg-white dark:bg-[#111216] rounded-3xl p-6 sm:p-8 border border-black/[0.08] dark:border-white/[0.08] shadow-xs space-y-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-neutral-900 dark:text-white" />
-            <h3 className="font-bold text-neutral-900 dark:text-white text-base">Advisor Verdict & Synthesis</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-neutral-900 dark:text-white" />
+              <h3 className="font-bold text-neutral-900 dark:text-white text-base">Advisor Verdict & Synthesis</h3>
+            </div>
+            {isAiPowered ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10.5px] font-mono font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 self-start sm:self-auto">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Powered by Google Gemini</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10.5px] font-mono font-semibold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-black/[0.06] dark:border-white/[0.06] self-start sm:self-auto">
+                <span>Deterministic Lab Engine</span>
+              </span>
+            )}
           </div>
-          <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed whitespace-pre-line">
+          <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed whitespace-pre-line pt-1">
             {aiExplanation}
           </p>
         </div>
@@ -501,7 +529,7 @@ export const AdvisorPage = () => {
             <h3 className="text-2xl font-extrabold text-neutral-900 dark:text-white flex items-center gap-2.5">
               <span>Top {recommendations.length} Recommended Picks</span>
               <span className="text-xs font-mono px-2 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
-                Audited Pool: 41
+                Audited Pool: 106
               </span>
             </h3>
             <span className="text-xs text-neutral-500 font-mono">

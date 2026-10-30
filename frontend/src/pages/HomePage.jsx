@@ -35,12 +35,21 @@ export const HomePage = () => {
 
   const categories = [
     { id: 'all', label: 'All Products', icon: Layers },
-    { id: 'smartphones', label: 'Smartphones', icon: Smartphone },
-    { id: 'laptops', label: 'Laptops', icon: Laptop },
-    { id: 'audio', label: 'Audio & ANC', icon: Headphones },
-    { id: 'smartwatches', label: 'Smartwatches', icon: Watch },
-    { id: 'tablets', label: 'Tablets', icon: Tablet },
-    { id: 'smart-home', label: 'Smart Living', icon: Home }
+    { id: 'electronics', label: 'Electronics & Technology', icon: Smartphone },
+    { id: 'fashion', label: 'Fashion & Clothing', icon: Layers },
+    { id: 'groceries', label: 'Groceries & Food', icon: Layers },
+    { id: 'home_furniture', label: 'Home, Furniture & Kitchen', icon: Home },
+    { id: 'beauty', label: 'Beauty & Personal Care', icon: Layers },
+    { id: 'health', label: 'Health, Fitness & Wellness', icon: Layers },
+    { id: 'books', label: 'Books, Education & Stationery', icon: Layers },
+    { id: 'toys', label: 'Toys, Baby & Kids', icon: Layers },
+    { id: 'automotive', label: 'Automotive & Vehicle Accessories', icon: Layers },
+    { id: 'pet', label: 'Pet Supplies', icon: Layers },
+    { id: 'gaming', label: 'Gaming & Entertainment', icon: Layers },
+    { id: 'travel', label: 'Travel & Luggage', icon: Layers },
+    { id: 'musical', label: 'Musical Instruments & Hobbies', icon: Layers },
+    { id: 'tools', label: 'Tools & Home Improvement', icon: Layers },
+    { id: 'other', label: 'Other Consumer Products', icon: Layers }
   ];
 
   useEffect(() => {

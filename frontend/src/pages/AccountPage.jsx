@@ -22,6 +22,8 @@ export const AccountPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // User preferences state
@@ -54,7 +56,12 @@ export const AccountPage = () => {
     if (isLoginTab) {
       await login(email, password);
     } else {
-      await register(email, password, fullName);
+      if (password !== confirmPassword) {
+        showToast('Passwords do not match');
+        setSubmitting(false);
+        return;
+      }
+      await register(email, password, fullName, phone);
     }
     setSubmitting(false);
   };
@@ -114,9 +121,7 @@ export const AccountPage = () => {
             SP
           </div>
           <h1 className="text-3xl font-extrabold text-neutral-900 dark:text-white tracking-tight">SmartPick Identity</h1>
-          <p className="text-xs text-neutral-500 font-mono">
-            Synchronize saved models, watchlist triggers, and acoustic calibration across sessions.
-          </p>
+
         </div>
 
         {/* Quick Demo Credentials Autofill Banner */}
@@ -149,22 +154,20 @@ export const AccountPage = () => {
             <button
               type="button"
               onClick={() => setIsLoginTab(true)}
-              className={`flex-1 pb-3 text-xs font-semibold tracking-wide transition border-b-2 text-center ${
-                isLoginTab
-                  ? 'border-neutral-900 text-neutral-900 dark:border-white dark:text-white'
-                  : 'border-transparent text-neutral-400 hover:text-neutral-700'
-              }`}
+              className={`flex-1 pb-3 text-xs font-semibold tracking-wide transition border-b-2 text-center ${isLoginTab
+                ? 'border-neutral-900 text-neutral-900 dark:border-white dark:text-white'
+                : 'border-transparent text-neutral-400 hover:text-neutral-700'
+                }`}
             >
               Sign In
             </button>
             <button
               type="button"
               onClick={() => setIsLoginTab(false)}
-              className={`flex-1 pb-3 text-xs font-semibold tracking-wide transition border-b-2 text-center ${
-                !isLoginTab
-                  ? 'border-neutral-900 text-neutral-900 dark:border-white dark:text-white'
-                  : 'border-transparent text-neutral-400 hover:text-neutral-700'
-              }`}
+              className={`flex-1 pb-3 text-xs font-semibold tracking-wide transition border-b-2 text-center ${!isLoginTab
+                ? 'border-neutral-900 text-neutral-900 dark:border-white dark:text-white'
+                : 'border-transparent text-neutral-400 hover:text-neutral-700'
+                }`}
             >
               Create Account
             </button>
@@ -184,6 +187,21 @@ export const AccountPage = () => {
                     value={fullName}
                     onChange={e => setFullName(e.target.value)}
                     placeholder="e.g. Rahul Sharma"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black/[0.1] dark:border-white/[0.1] bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
+                  />
+                </div>
+                {/* Phone Number */}
+                <label className="block font-medium text-neutral-700 dark:text-neutral-300 mt-4">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Lock className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-2.5" />
+                  <input
+                    type="tel"
+                    required
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+1 555 123 4567"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black/[0.1] dark:border-white/[0.1] bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
                   />
                 </div>
@@ -222,6 +240,25 @@ export const AccountPage = () => {
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black/[0.1] dark:border-white/[0.1] bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
                 />
               </div>
+              {!isLoginTab && (
+                <>
+                  {/* Confirm Password */}
+                  <label className="block font-medium text-neutral-700 dark:text-neutral-300 mt-4">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-2.5" />
+                    <input
+                      type="password"
+                      required
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-black/[0.1] dark:border-white/[0.1] bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <button

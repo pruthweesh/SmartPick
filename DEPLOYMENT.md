@@ -265,3 +265,10 @@ Once both services are deployed, verify system integrity with these test steps:
 - [ ] **6. AI Advisor Recommendations**:
   - Go to `/advisor`, enter a natural language prompt (e.g., *"Earbuds under ₹3000 with ANC for daily office calls"*).
   - Verify that matching products and transparent score breakdowns are returned.
+
+
+### backend cmd
+
+cd C:\Users\PRUTHWEESH\Downloads\smartpick\backend\python
+.\.venv\Scripts\Activate
+.\.venv\Scripts\uvicorn.exe main:app --host 127.0.0.1 --port 8000 --reload

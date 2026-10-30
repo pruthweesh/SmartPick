@@ -2,25 +2,31 @@
 SmartPick FastAPI Application Entry Point - Complete Endpoints
 """
 import os
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from passlib.hash import bcrypt
+from passlib.hash import pbkdf2_sha256, bcrypt
 import jwt
+from config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRES_DELTA
 
 from database import engine, Base, get_db
 from models import (
     Product, Category, ProductSpecification, ProductProCon, RetailerOffer,
     PriceHistory, ReviewsInsight, IssueReport, User, Wishlist,
-    WishlistItem, PriceAlert, RecommendationSession, AuditLog
+    WishlistItem, PriceAlert, RecommendationSession, AuditLog, UserPreference,
+    Cart, CartItem
 )
 from schemas import (
-    UserRegister, UserLogin, TokenResponse, ProductDetailSchema,
-    RecommendationRequest, IssueCreate, PriceAlertCreate, CompareRequest
+    UserRegister, UserLogin, TokenResponse, ProductDetailSchema, UserPreferenceResponse, UserPreferenceBase,
+    RecommendationRequest, ClarifyRequest, IssueCreate, PriceAlertCreate, CompareRequest,
+    CartItemCreate, OrderCreate
 )
+import advisor_engine
 
 Base.metadata.create_all(bind=engine)
 
@@ -30,7 +36,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-JWT_SECRET = os.getenv("JWT_SECRET", "smartpick_secret_key_v1_india_2025")
+
 
 # CORS configuration supporting production Vercel frontend domains, custom origins, and localhost
 cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -87,20 +93,21 @@ def register_user(data: UserRegister, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="An account with this email already exists")
     
-    hashed = bcrypt.hash(data.password[:72])
+    hashed = pbkdf2_sha256.hash(data.password)
     user_id = f"usr_{uuid.uuid4().hex[:10]}"
     new_user = User(
         id=user_id,
         email=data.email,
         hashed_password=hashed,
         full_name=data.full_name,
+        phone=data.phone,
         role="admin" if "admin" in data.email.lower() else "user"
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    token = jwt.encode({"id": new_user.id, "email": new_user.email, "role": new_user.role}, JWT_SECRET, algorithm="HS256")
+    token = jwt.encode({"id": new_user.id, "email": new_user.email, "role": new_user.role, "exp": int((datetime.utcnow() + JWT_EXPIRES_DELTA).timestamp())}, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {"token": token, "user": {"id": new_user.id, "email": new_user.email, "full_name": new_user.full_name, "role": new_user.role}}
 
 @app.post("/api/auth/login", response_model=TokenResponse)
@@ -109,16 +116,42 @@ def login_user(data: UserLogin, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    # Verify password (truncate to bcrypt limit)
-    if not bcrypt.verify(data.password[:72], user.hashed_password):
+    # Verify password (support both pbkdf2_sha256 and bcrypt hashes)
+    try:
+        password_ok = pbkdf2_sha256.verify(data.password, user.hashed_password)
+    except Exception:
+        password_ok = bcrypt.verify(data.password, user.hashed_password)
+    if not password_ok:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    token = jwt.encode({"id": user.id, "email": user.email, "role": user.role, "exp": (datetime.utcnow() + timedelta(hours=1)).timestamp()}, JWT_SECRET, algorithm="HS256")
+    token = jwt.encode({"id": user.id, "email": user.email, "role": user.role, "exp": int((datetime.utcnow() + JWT_EXPIRES_DELTA).timestamp())}, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return {"token": token, "user": {"id": user.id, "email": user.email, "full_name": user.full_name, "role": user.role}}
 
 @app.get("/api/auth/me")
 def get_me(user: User = Depends(get_current_user)):
     return {"id": user.id, "email": user.email, "full_name": user.full_name, "role": user.role}
+
+@app.get("/api/user/preferences")
+def get_preferences(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    if not pref:
+        pref = UserPreference(user_id=user.id)
+        db.add(pref)
+        db.commit()
+        db.refresh(pref)
+    return UserPreferenceResponse.from_orm(pref)
+
+@app.put("/api/user/preferences")
+def update_preferences(prefs: UserPreferenceBase, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    pref = db.query(UserPreference).filter(UserPreference.user_id == user.id).first()
+    if not pref:
+        pref = UserPreference(user_id=user.id)
+        db.add(pref)
+    for field, value in prefs.dict().items():
+        setattr(pref, field, value)
+    db.commit()
+    db.refresh(pref)
+    return UserPreferenceResponse.from_orm(pref)
 
 @app.post("/api/auth/logout")
 def logout_user():
@@ -127,22 +160,99 @@ def logout_user():
 # 2. Products Endpoints
 @app.get("/api/products")
 def list_products(
-    category: Optional[str] = Query(None),
-    min_price: Optional[float] = Query(None),
-    max_price: Optional[float] = Query(None),
-    brand: Optional[str] = Query(None),
-    sort: Optional[str] = Query("price_asc"),
-    page: int = Query(1),
-    limit: int = Query(20),
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    brand: Optional[str] = None,
+    search: Optional[str] = None,
+    anc: Optional[str] = None,
+    water_resistance: Optional[str] = None,
+    gaming_mode: Optional[str] = None,
+    min_battery: Optional[str] = None,
+    sort: Optional[str] = "price_asc",
+    page: int = 1,
+    limit: int = 100,
     db: Session = Depends(get_db)
 ):
     query = db.query(Product).filter(Product.status == "approved")
-    if category:
-        query = query.filter(Product.category == category.lower())
-    if brand:
+    if category and str(category).lower() != "all":
+        cat_norm = str(category).lower().strip()
+        if cat_norm in ("smartphones", "smartphone"):
+            query = query.filter(Product.category.in_(["smartphones", "smartphone"]))
+        elif cat_norm in ("laptops", "laptop"):
+            query = query.filter(Product.category.in_(["laptops", "laptop"]))
+        elif cat_norm in ("audio", "audio & anc", "earbuds", "headphones"):
+            query = query.filter(Product.category.in_(["audio", "earbuds", "headphones"]))
+        elif cat_norm in ("smartwatches", "smartwatch", "watches"):
+            query = query.filter(Product.category.in_(["smartwatches", "smartwatch"]))
+        elif cat_norm in ("tablets", "tablet"):
+            query = query.filter(Product.category.in_(["tablets", "tablet"]))
+        elif cat_norm in ("smart-home", "smart_home", "smart-living", "smart living"):
+            query = query.filter(Product.category.in_(["smart-home", "smart_home", "smart-living"]))
+        else:
+            query = query.filter(Product.category.ilike(cat_norm))
+
+    if brand and brand != "All Brands":
         query = query.filter(Product.brand.ilike(brand))
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.filter(
+            Product.name.ilike(search_term) |
+            Product.brand.ilike(search_term) |
+            Product.model_number.ilike(search_term) |
+            Product.description.ilike(search_term)
+        )
     
     products = query.all()
+
+    # Hardware Criteria filters
+    if anc in ("true", "1", True):
+        products = [
+            p for p in products
+            if any(
+                s.spec_key == "anc_rating" and s.spec_value and not any(neg in s.spec_value.lower() for neg in ["not available", "none", "passive", "no"])
+                for s in p.specifications
+            ) or "anc" in p.name.lower() or "active noise" in p.description.lower() or "anc" in p.description.lower()
+        ]
+
+    if water_resistance in ("true", "1", True):
+        products = [
+            p for p in products
+            if any(
+                s.spec_key == "water_resistance" and s.spec_value and not any(neg in s.spec_value.lower() for neg in ["none", "no", "not available"])
+                for s in p.specifications
+            ) or any(w in p.description.lower() for w in ["ipx", "ip5", "ip6", "water resist", "5atm", "swimproof", "100m"])
+        ]
+
+    if gaming_mode in ("true", "1", True):
+        products = [
+            p for p in products
+            if any(
+                s.spec_key in ("gaming_mode", "low_latency", "refresh_rate")
+                for s in p.specifications
+            ) or any(g in (p.name + " " + p.description).lower() for g in ["low latency", "gaming", "120hz", "144hz", "165hz", "240hz", "rtx", "beast mode"])
+        ]
+
+    if min_battery:
+        try:
+            min_b = float(min_battery)
+            filtered = []
+            for p in products:
+                bat_found = False
+                for s in p.specifications:
+                    if s.spec_key in ("battery_life", "total_battery_life", "runtime", "battery_charging"):
+                        import re
+                        nums = re.findall(r'\d+', s.spec_value)
+                        if nums and float(nums[0]) >= min_b:
+                            bat_found = True
+                            break
+                if bat_found or (min_b <= 20 and p.category in ("smartphones", "smartwatches")):
+                    filtered.append(p)
+            products = filtered
+        except Exception:
+            pass
+
     results = []
     for p in products:
         offers_data = [
@@ -262,51 +372,215 @@ def get_reviews_insights(product_id: str, db: Session = Depends(get_db)):
 # 3. Recommendations
 @app.post("/api/recommendations")
 def get_recommendations(req: RecommendationRequest, db: Session = Depends(get_db)):
-    # Deterministic filter and score
-    budget_max = req.budget_max or 5000.0
-    if req.category:
-        products = db.query(Product).filter(Product.status == "approved", Product.category.ilike(req.category)).all()
-    else:
-        products = db.query(Product).filter(Product.status == "approved").all()
+    query_str = (req.query or "").strip()
+    custom_req = req.requirements or {}
     
+    # 1. Category extraction & normalization
+    extracted_cat = advisor_engine.detect_category(query_str) if query_str else "all"
+    category = custom_req.get("category") or req.category or extracted_cat or "all"
+    if category in ["earbuds", "earphone", "headphones", "earphones"]:
+        category = "audio"
+    elif category in ["phone", "phones"]:
+        category = "smartphones"
+    elif category in ["laptop"]:
+        category = "laptops"
+    elif category in ["watch", "watches"]:
+        category = "smartwatches"
+    elif category in ["tablet"]:
+        category = "tablets"
+    elif category in ["smart living", "smart home", "smarthome"]:
+        category = "smart-home"
+
+    # 2. Budget extraction
+    parsed_budget = advisor_engine.parse_budget_from_text(query_str)
+    budget_max = (
+        custom_req.get("budget_max")
+        or req.budget_max
+        or parsed_budget
+        or advisor_engine.DEFAULT_BUDGET_MAP.get(category, 150000.0)
+    )
+    budget_max = float(budget_max)
+
+    # 3. Intent and priority
+    parsed_uses, parsed_prio, parsed_must = advisor_engine.detect_intent_and_priority(query_str)
+    intended_use = custom_req.get("intended_use") or req.intended_use or parsed_uses
+    usage_priority = custom_req.get("usage_priority") or req.usage_priority or parsed_prio
+    must_have_features = custom_req.get("must_have_features") or req.must_have_features or parsed_must
+
+    final_requirements = {
+        "budget_max": budget_max,
+        "category": category,
+        "intended_use": intended_use,
+        "must_have_features": must_have_features,
+        "usage_priority": usage_priority
+    }
+
+    # 4. Query DB
+    query = db.query(Product).filter(Product.status == "approved")
+    if category != "all":
+        query = query.filter(Product.category.ilike(category))
+    products = query.all()
+
     candidates = []
+    near_matches = []
+    
     for p in products:
-        lowest = min([o.current_price for o in p.offers]) if p.offers else 99999
-        if lowest <= budget_max:
-            # Score product
-            candidates.append({
-                "product": {
-                    "id": p.id,
-                    "name": p.name,
-                    "brand": p.brand,
-                    "image_url": p.image_url,
-                    "description": p.description,
-                    "specifications": [{"spec_key": s.spec_key, "spec_value": s.spec_value} for s in p.specifications],
-                    "offers": [{"retailer_name": o.retailer_name, "current_price": o.current_price, "affiliate_url": o.affiliate_url} for o in p.offers]
-                },
-                "match_score": 92 if "oneplus" in p.name.lower() or "realme" in p.name.lower() else 86,
-                "why_it_fits": f"Priced at ₹{lowest:,.0f}, perfectly within your ceiling. Proven audio drivers with reliable microphone isolation.",
-                "trade_offs": "Standard plastic case construction; fast charging requires USB-C charger.",
-                "pros": [pc.text for pc in p.pros_cons if pc.type == "pro"],
-                "cons": [pc.text for pc in p.pros_cons if pc.type == "con"],
-                "evidence_quality": "High",
-                "affiliate_disclosure": "SmartPick may earn an affiliate commission if purchased via retailer links."
-            })
-            
+        price = advisor_engine.get_product_price(p)
+        scored = advisor_engine.score_product_fit(p, final_requirements, query_str)
+        
+        has_anc = True
+        if "anc" in must_have_features:
+            anc_val = ""
+            for s in p.specifications:
+                if s.spec_key == "anc_rating":
+                    anc_val = s.spec_value or ""
+                    break
+            if not anc_val or "passive" in anc_val.lower() or "not available" in anc_val.lower():
+                has_anc = False
+
+        if price <= budget_max and has_anc:
+            candidates.append(scored)
+        elif price <= budget_max * 1.35:
+            scored_near = dict(scored)
+            scored_near["match_score"] = max(70, scored["match_score"] - 8)
+            near_matches.append(scored_near)
+
     candidates.sort(key=lambda x: x["match_score"], reverse=True)
+    near_matches.sort(key=lambda x: x["match_score"], reverse=True)
     top_picks = candidates[:5]
+
+    conflict_explanation = None
+    if len(top_picks) == 0:
+        cat_disp = category.replace("-", " ") if category != "all" else "product"
+        conflict_explanation = (
+            f"No verified {cat_disp} found strictly matching your ceiling of ₹{budget_max:,.0f}."
+        )
+
+    ai_explanation, is_gemini = advisor_engine.generate_synthesis_narrative(
+        category=category,
+        budget_max=budget_max,
+        top_picks=top_picks,
+        total_eligible=len(candidates),
+        priority=usage_priority,
+        query_str=query_str
+    )
+
+    clarifying_questions = advisor_engine.generate_clarifying_questions(category, query_str)
 
     return {
         "session_id": f"ses_{uuid.uuid4().hex[:8]}",
-        "extracted_requirements": {
-            "budget_max": budget_max,
-            "category": req.category if req.category else "earbuds",
-            "intended_use": req.intended_use or ["calls"]
-        },
+        "extracted_requirements": final_requirements,
+        "clarifying_questions": clarifying_questions,
+        "recommendations": top_picks,
+        "near_matches": near_matches[:3],
+        "conflict_explanation": conflict_explanation,
+        "total_eligible": len(candidates),
+        "ai_explanation": ai_explanation,
+        "ai_powered": is_gemini
+    }
+
+@app.post("/api/recommendations/clarify")
+def clarify_recommendations(req: ClarifyRequest, db: Session = Depends(get_db)):
+    current_reqs = req.current_requirements or {}
+    answers = req.answers or {}
+
+    category = current_reqs.get("category", "all")
+    budget_max = float(current_reqs.get("budget_max", 150000.0))
+    usage_priority = current_reqs.get("usage_priority", "value")
+    intended_use = list(current_reqs.get("intended_use", []))
+    must_have_features = list(current_reqs.get("must_have_features", []))
+
+    for q_id, ans in answers.items():
+        ans_lower = ans.lower()
+        if "camera" in ans_lower or "photo" in ans_lower:
+            usage_priority = "camera"
+            if "photography" not in intended_use:
+                intended_use.append("photography")
+        elif "gaming" in ans_lower or "performance" in ans_lower:
+            usage_priority = "performance"
+            if "gaming" not in intended_use:
+                intended_use.append("gaming")
+        elif "battery" in ans_lower:
+            usage_priority = "battery"
+            if "battery" not in intended_use:
+                intended_use.append("battery")
+        elif "coding" in ans_lower or "development" in ans_lower:
+            usage_priority = "productivity"
+            if "coding" not in intended_use:
+                intended_use.append("coding")
+        elif "anc" in ans_lower:
+            if "anc" not in must_have_features:
+                must_have_features.append("anc")
+        elif "health" in ans_lower or "gps" in ans_lower:
+            usage_priority = "fitness"
+
+    updated_reqs = {
+        "budget_max": budget_max,
+        "category": category,
+        "intended_use": intended_use,
+        "must_have_features": must_have_features,
+        "usage_priority": usage_priority
+    }
+
+    query = db.query(Product).filter(Product.status == "approved")
+    if category != "all":
+        query = query.filter(Product.category.ilike(category))
+    products = query.all()
+
+    candidates = []
+    near_matches = []
+    
+    for p in products:
+        price = advisor_engine.get_product_price(p)
+        scored = advisor_engine.score_product_fit(p, updated_reqs, "")
+        
+        has_anc = True
+        if "anc" in must_have_features:
+            anc_val = ""
+            for s in p.specifications:
+                if s.spec_key == "anc_rating":
+                    anc_val = s.spec_value or ""
+                    break
+            if not anc_val or "passive" in anc_val.lower() or "not available" in anc_val.lower():
+                has_anc = False
+
+        if price <= budget_max and has_anc:
+            candidates.append(scored)
+        elif price <= budget_max * 1.35:
+            scored_near = dict(scored)
+            scored_near["match_score"] = max(70, scored["match_score"] - 8)
+            near_matches.append(scored_near)
+
+    candidates.sort(key=lambda x: x["match_score"], reverse=True)
+    near_matches.sort(key=lambda x: x["match_score"], reverse=True)
+    top_picks = candidates[:5]
+
+    conflict_explanation = None
+    if len(top_picks) == 0:
+        cat_disp = category.replace("-", " ") if category != "all" else "product"
+        conflict_explanation = (
+            f"No verified {cat_disp} found strictly matching your refined ceiling of ₹{budget_max:,.0f}."
+        )
+
+    ai_explanation, is_gemini = advisor_engine.generate_synthesis_narrative(
+        category=category,
+        budget_max=budget_max,
+        top_picks=top_picks,
+        total_eligible=len(candidates),
+        priority=usage_priority,
+        query_str=f"Refined {category} prioritizing {usage_priority}"
+    )
+
+    return {
+        "session_id": f"ses_{uuid.uuid4().hex[:8]}",
+        "updated_requirements": updated_reqs,
         "clarifying_questions": [],
         "recommendations": top_picks,
+        "near_matches": near_matches[:3],
+        "conflict_explanation": conflict_explanation,
         "total_eligible": len(candidates),
-        "ai_explanation": f"Based on your requirements under ₹{budget_max:,.0f}, we selected {len(top_picks)} approved earbuds with verified acoustic laboratory test data."
+        "ai_explanation": ai_explanation,
+        "ai_powered": is_gemini
     }
 
 # 4. Comparison
@@ -320,12 +594,15 @@ def compare_products(req: CompareRequest, db: Session = Depends(get_db)):
             "name": p.name,
             "brand": p.brand,
             "image_url": p.image_url,
+            "category": p.category,
             "specifications": [{"spec_key": s.spec_key, "spec_value": s.spec_value} for s in p.specifications],
-            "offers": [{"retailer_name": o.retailer_name, "current_price": o.current_price, "affiliate_url": o.affiliate_url} for o in p.offers]
+            "offers": [{"retailer_name": o.retailer_name, "current_price": o.current_price, "affiliate_url": o.affiliate_url or o.retailer_url} for o in p.offers]
         })
+    cats = list(set([p.category for p in products if p.category]))
+    cat_str = ", ".join(cats) if cats else "hardware models"
     return {
         "products": results,
-        "ai_comparison": f"Comparing {len(results)} earbuds: Observe the differences in certified active noise cancellation rating and battery endurance."
+        "ai_comparison": f"Comparing {len(results)} {cat_str}: Observe technical variations in verified laboratory benchmarks, retail pricing, and certified battery endurance."
     }
 
 # 5. Wishlists & Price Alerts
@@ -380,6 +657,140 @@ def delete_alert(alert_id: str, user: User = Depends(get_current_user), db: Sess
         db.delete(alert)
         db.commit()
     return {"success": True}
+# Cart Endpoints
+@app.get("/api/cart")
+def get_cart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cart = db.query(Cart).filter(Cart.user_id == user.id).first()
+    if not cart:
+        cart = Cart(id=f"cart_{uuid.uuid4().hex[:8]}", user_id=user.id)
+        db.add(cart)
+        db.commit()
+        db.refresh(cart)
+    items = []
+    for ci in cart.items:
+        items.append({
+            "id": ci.id,
+            "product_id": ci.product_id,
+            "quantity": ci.quantity,
+            "added_at": ci.added_at,
+        })
+    return {"id": cart.id, "user_id": cart.user_id, "items": items, "created_at": cart.created_at}
+
+@app.post("/api/cart/items")
+def add_cart_item(payload: CartItemCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    cart = db.query(Cart).filter(Cart.user_id == user.id).first()
+    if not cart:
+        cart = Cart(id=f"cart_{uuid.uuid4().hex[:8]}", user_id=user.id)
+        db.add(cart)
+        db.commit()
+        db.refresh(cart)
+    existing = db.query(CartItem).filter(CartItem.cart_id == cart.id, CartItem.product_id == payload.product_id).first()
+    if existing:
+        existing.quantity += payload.quantity
+        db.commit()
+        db.refresh(existing)
+        item = existing
+    else:
+        item = CartItem(
+            id=f"citi_{uuid.uuid4().hex[:8]}",
+            cart_id=cart.id,
+            product_id=payload.product_id,
+            quantity=payload.quantity,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+    return {"id": item.id, "product_id": item.product_id, "quantity": item.quantity, "added_at": item.added_at}
+
+# Order Endpoints (demo payment flow)
+@app.post("/api/orders")
+def create_order(order_data: OrderCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    total = sum([i.unit_price * i.quantity for i in order_data.items])
+    order = Order(
+        id=f"ord_{uuid.uuid4().hex[:8]}",
+        user_id=user.id,
+        status="pending",
+        payment_status="unpaid",
+        total_amount=total,
+        ship_name=order_data.ship_name,
+        ship_phone=order_data.ship_phone,
+        ship_address=order_data.ship_address,
+        ship_city=order_data.ship_city,
+        ship_state=order_data.ship_state,
+        ship_postal_code=order_data.ship_postal_code,
+        ship_country=order_data.ship_country,
+        ship_instructions=order_data.ship_instructions,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    for it in order_data.items:
+        oi = OrderItem(
+            id=f"oit_{uuid.uuid4().hex[:8]}",
+            order_id=order.id,
+            product_id=it.product_id,
+            product_name=it.product_name,
+            product_image=it.product_image,
+            unit_price=it.unit_price,
+            quantity=it.quantity,
+            subtotal=it.unit_price * it.quantity,
+        )
+        db.add(oi)
+    db.commit()
+    return {"order_id": order.id, "status": order.status, "payment_status": order.payment_status, "total_amount": total}
+
+@app.get("/api/orders")
+def list_orders(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    orders = db.query(Order).filter(Order.user_id == user.id).order_by(Order.created_at.desc()).all()
+    result = []
+    for o in orders:
+        result.append({
+            "id": o.id,
+            "status": o.status,
+            "payment_status": o.payment_status,
+            "total_amount": o.total_amount,
+            "currency": o.currency,
+            "created_at": o.created_at,
+        })
+    return {"orders": result}
+
+@app.get("/api/orders/{order_id}")
+def get_order(order_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user.id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    items = []
+    for i in order.items:
+        items.append({
+            "id": i.id,
+            "product_id": i.product_id,
+            "product_name": i.product_name,
+            "product_image": i.product_image,
+            "unit_price": i.unit_price,
+            "quantity": i.quantity,
+            "subtotal": i.subtotal,
+        })
+    return {
+        "id": order.id,
+        "status": order.status,
+        "payment_status": order.payment_status,
+        "total_amount": order.total_amount,
+        "currency": order.currency,
+        "created_at": order.created_at,
+        "items": items,
+    }
+
+# Demo payment endpoint (no external gateway)
+@app.post("/api/payments/{order_id}")
+def mock_payment(order_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user.id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order.payment_status = "paid"
+    order.status = "completed"
+    db.commit()
+    return {"order_id": order.id, "payment_status": order.payment_status, "status": order.status}
+
 
 # 6. Issues
 @app.post("/api/issues")

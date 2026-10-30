@@ -5,7 +5,12 @@ import { Navbar } from './components/Navbar.jsx';
 import { Footer } from './components/Footer.jsx';
 
 // Pages
+import { CartPage } from './pages/CartPage.jsx';
 import { HomePage } from './pages/HomePage.jsx';
+import { CheckoutPage } from './pages/CheckoutPage.jsx';
+import { PaymentPage } from './pages/PaymentPage.jsx';
+import { OrderSuccessPage } from './pages/OrderSuccessPage.jsx';
+import { OrderHistoryPage } from './pages/OrderHistoryPage.jsx';
 import { AdvisorPage } from './pages/AdvisorPage.jsx';
 import { ProductListPage } from './pages/ProductListPage.jsx';
 import { ProductDetailPage } from './pages/ProductDetailPage.jsx';
@@ -44,13 +49,21 @@ const NotFoundPage = () => (
 
 // Toast notification component
 const ToastNotification = () => {
-  const { toastMessage } = useApp();
-  if (!toastMessage) return null;
+  const { toast } = useApp();
+  if (!toast?.message) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 bg-neutral-950 text-white px-4 py-3 rounded-xl shadow-2xl text-xs font-mono font-medium border border-neutral-800 animate-in slide-in-from-bottom-4 duration-200 flex items-center gap-2.5">
-      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-      <span>{toastMessage}</span>
+    <div className="fixed bottom-6 right-6 z-50 bg-neutral-950/95 dark:bg-white text-white dark:text-neutral-950 px-4 py-3 rounded-2xl shadow-2xl text-xs font-medium border border-neutral-800 dark:border-neutral-200 backdrop-blur-md animate-in slide-in-from-bottom-4 duration-200 flex items-center gap-3">
+      <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+      <span className="font-mono">{toast.message}</span>
+      {toast.action && (
+        <Link
+          to={toast.action.url}
+          className="ml-1 px-2.5 py-1 rounded-lg bg-white/20 dark:bg-black/10 hover:bg-white/30 dark:hover:bg-black/20 font-bold transition uppercase text-[10px] tracking-wider"
+        >
+          {toast.action.label}
+        </Link>
+      )}
     </div>
   );
 };
@@ -70,7 +83,13 @@ export default function App() {
                 <Route path="/products/:productId" element={<ProductDetailPage />} />
                 <Route path="/compare" element={<ComparePage />} />
                 <Route path="/wishlist" element={<WishlistPage />} />
+                <Route path="/cart" element={<CartPage />} />
+                <Route path="/CartPage" element={<CartPage />} />
+                <Route path="/checkout" element={<CheckoutPage />} />
+                <Route path="/payment/preview" element={<PaymentPage />} />
+                <Route path="/order-success/:orderId" element={<OrderSuccessPage />} />
                 <Route path="/alerts" element={<PriceAlertsPage />} />
+                <Route path="/order-history" element={<OrderHistoryPage />} />
                 <Route path="/account" element={<AccountPage />} />
                 <Route path="/methodology" element={<MethodologyPage />} />
                 <Route path="/how-recommendations-work" element={<MethodologyPage />} />

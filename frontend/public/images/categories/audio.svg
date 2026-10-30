@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e1017"/>
+      <stop offset="100%" stop-color="#181b24"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" rx="16" fill="url(#bg)"/>
+  <circle cx="200" cy="150" r="95" fill="#fbbc05" opacity="0.08"/>
+  <g><path d="M140 160 A60 60 0 0 1 260 160" fill="none" stroke="#fbbc05" stroke-width="12" stroke-linecap="round"/>
+        <rect x="125" y="150" width="28" height="55" rx="12" fill="#222" stroke="#fbbc05" stroke-width="3"/>
+        <rect x="247" y="150" width="28" height="55" rx="12" fill="#222" stroke="#fbbc05" stroke-width="3"/>
+        <circle cx="139" cy="177" r="6" fill="#fbbc05"/>
+        <circle cx="261" cy="177" r="6" fill="#fbbc05"/></g>
+  <text x="200" y="270" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="14" font-weight="700" fill="#f0f2f5" text-anchor="middle" letter-spacing="1.5">AUDIO & ANC</text>
+</svg>

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ShieldCheck,
   Check,
@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Clock,
   ArrowUpRight,
-  Sparkles
+  Sparkles,
+  ShoppingCart,
+  Zap
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import { PriceHistoryChart } from '../components/PriceHistoryChart.jsx';
@@ -26,7 +28,16 @@ import { EmptyState } from '../components/EmptyState.jsx';
 
 export const ProductDetailPage = () => {
   const { productId } = useParams();
-  const { compareList, addToCompare, removeFromCompare, isInWishlist, toggleWishlist } = useApp();
+  const navigate = useNavigate();
+  const {
+    compareList,
+    addToCompare,
+    removeFromCompare,
+    isInWishlist,
+    toggleWishlist,
+    addToCart,
+    setBuyNow,
+  } = useApp();
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -104,8 +115,13 @@ export const ProductDetailPage = () => {
           <div className="lg:col-span-5 flex flex-col items-center">
             <div className="w-full aspect-square rounded-2xl bg-[#f5f5f7] dark:bg-[#16181f] overflow-hidden relative flex items-center justify-center p-8 border border-black/[0.04] dark:border-white/[0.04]">
               <img
-                src={product.image_url || 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800'}
+                src={product.image_url || `/images/categories/${(product.category || 'audio').toLowerCase()}.svg`}
                 alt={product.name}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  const cat = (product.category || 'audio').toLowerCase();
+                  e.currentTarget.src = `/images/categories/${cat}.svg`;
+                }}
                 className="w-full h-full object-contain"
               />
               <div className="absolute top-4 left-4 bg-white/95 dark:bg-neutral-900/90 backdrop-blur-md text-neutral-900 dark:text-neutral-100 font-mono text-[10px] tracking-wider uppercase px-2.5 py-1 rounded-md border border-black/[0.08] dark:border-white/[0.08] shadow-2xs flex items-center gap-1.5">
@@ -175,6 +191,27 @@ export const ProductDetailPage = () => {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => addToCart(product, 1)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100 flex items-center gap-1.5 transition shadow-sm"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                  <span>Add to Cart</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyNow(product, 1);
+                    navigate('/checkout?buyNow=true');
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 flex items-center gap-1.5 transition shadow-sm"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Buy Now</span>
+                </button>
+
                 <button
                   onClick={() => (isCompared ? removeFromCompare(product.id) : addToCompare(product.id))}
                   className={`px-4 py-2.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${

@@ -37,16 +37,11 @@ export const ComparePage = () => {
       .then(d => setAllProducts(d.data || []));
   }, []);
 
+  // Fetch comparison data whenever compareList changes
   useEffect(() => {
-    const ids = searchParams.get('ids')
-      ? searchParams.get('ids').split(',')
-      : compareList;
-
-    if (ids.length < 2) {
-      if (allProducts.length >= 2 && compareList.length === 0) {
-        addToCompare(allProducts[0].id);
-        addToCompare(allProducts[1].id);
-      }
+    if (compareList.length < 2) {
+      setCompareProducts([]);
+      setAiInsight('');
       return;
     }
 
@@ -54,7 +49,7 @@ export const ComparePage = () => {
     fetch('/api/compare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_ids: ids.slice(0, 4) })
+      body: JSON.stringify({ product_ids: compareList.slice(0, 4) })
     })
       .then(res => res.json())
       .then(data => {
@@ -65,7 +60,35 @@ export const ComparePage = () => {
       })
       .catch(err => console.error('Failed to fetch comparison:', err))
       .finally(() => setLoading(false));
-  }, [compareList, searchParams, allProducts]);
+  }, [compareList]);
+
+  // Determine the best product (e.g., lowest price) for shopper recommendation
+  const bestProduct = useMemo(() => {
+    if (!compareProducts.length) return null;
+    let best = null;
+    let bestPrice = Infinity;
+    compareProducts.forEach(p => {
+      const price = p.offers && p.offers.length ? p.offers[0].current_price : Infinity;
+      if (price < bestPrice) {
+        best = p;
+        bestPrice = price;
+      }
+    });
+    return best;
+  }, [compareProducts]);
+
+  // Render recommendation section after AI insight
+  const recommendationSection = bestProduct ? (
+    <div className="bg-amber-100 dark:bg-amber-900 p-4 rounded-xl mt-4">
+      <h3 className="font-bold text-base">Recommended for you</h3>
+      <p className="text-sm">
+        Based on price, <span className="font-medium">{bestProduct.name}</span> offers the best value at ₹{bestProduct.offers[0].current_price.toLocaleString('en-IN')}.
+      </p>
+      <Link to={`/products/${bestProduct.id}`} className="text-sm underline">
+        View Details
+      </Link>
+    </div>
+  ) : null;
 
   const masterAttributes = useMemo(() => [
     { label: 'Lowest Price (INR)', key: 'price' },
@@ -124,7 +147,7 @@ export const ComparePage = () => {
   const filteredDrawerProducts = useMemo(() => {
     const term = drawerSearch.toLowerCase().trim();
     return allProducts
-      .filter(p => !compareList.includes(p.id))
+      .filter(p => !compareList.includes(String(p.id)))
       .filter(p => !term || p.name.toLowerCase().includes(term) || p.brand.toLowerCase().includes(term) || (p.category && p.category.toLowerCase().includes(term)));
   }, [allProducts, compareList, drawerSearch]);
 
@@ -146,7 +169,7 @@ export const ComparePage = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {compareProducts.length < 4 && (
+          {compareList.length < 4 && (
             <button
               onClick={() => {
                 setSelectorOpen(!selectorOpen);
@@ -155,11 +178,11 @@ export const ComparePage = () => {
               className="px-4 py-2 rounded-full bg-neutral-900 hover:bg-neutral-800 text-white dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 font-semibold text-xs flex items-center gap-1.5 transition shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Model ({compareProducts.length}/4)</span>
+              <span>Add Model ({compareList.length}/4)</span>
             </button>
           )}
 
-          {compareProducts.length > 0 && (
+          {compareList.length > 0 && (
             <button
               onClick={clearCompare}
               className="px-4 py-2 rounded-full border border-black/[0.1] dark:border-white/[0.1] text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 font-medium text-xs transition"
@@ -202,7 +225,7 @@ export const ComparePage = () => {
                 <button
                   key={p.id}
                   onClick={() => {
-                    addToCompare(p.id);
+                    addToCompare(String(p.id));
                     setSelectorOpen(false);
                   }}
                   className="flex items-center gap-2.5 p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.06] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-left text-xs transition"
@@ -235,6 +258,8 @@ export const ComparePage = () => {
           </p>
         </div>
       )}
+      {/* Recommendation Section */}
+      {recommendationSection}
 
       {/* Comparison Body */}
       {compareProducts.length < 2 ? (
@@ -242,13 +267,13 @@ export const ComparePage = () => {
           <Scale className="w-10 h-10 text-neutral-300 dark:text-neutral-600 mx-auto" />
           <h3 className="text-base font-bold text-neutral-900 dark:text-white">Add at least 2 products to compare</h3>
           <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-            Browse our tested earbuds catalog and click "Compare" on the models you wish to evaluate side-by-side.
+            Browse our product catalog and click "Compare" on the models you wish to evaluate side-by-side.
           </p>
           <Link
             to="/products"
             className="inline-block px-5 py-2.5 rounded-full bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium text-xs transition"
           >
-            Browse Earbuds Catalog
+            Browse Product Catalog
           </Link>
         </div>
       ) : (
@@ -320,7 +345,7 @@ export const ComparePage = () => {
                             {prod.brand}
                           </span>
                           <button
-                            onClick={() => removeFromCompare(prod.id)}
+                            onClick={() => removeFromCompare(String(prod.id))}
                             className="p-1 rounded text-neutral-400 hover:text-neutral-900 dark:hover:text-white"
                           >
                             <X className="w-3.5 h-3.5" />
@@ -421,7 +446,7 @@ export const ComparePage = () => {
                         {prod.brand}
                       </span>
                       <button
-                        onClick={() => removeFromCompare(prod.id)}
+                        onClick={() => removeFromCompare(String(prod.id))}
                         className="p-1 rounded text-neutral-400 hover:text-neutral-900"
                       >
                         <X className="w-3.5 h-3.5" />
